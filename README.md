@@ -91,9 +91,15 @@ PhoneBox Starter (Mac) liest sie lokal ──▶ claude -p … (im Chat-Ordner) 
 - Jede Nachricht und jede Antwort ist mit dem **Kopplungsschlüssel des iPhones signiert** (HMAC-SHA256). Andere
   Absender, etwa Geräte mit dem Webhook-Schlüssel des Agenten, können Claude Code deshalb nicht steuern.
 - Das Gespräch wird fortgesetzt (`--resume`), bis du **Neuer Chat** tippst. **Stopp** bricht eine laufende Antwort ab.
+- **Projektordner wechseln:** Tipp in der Kopfzeile auf **📁 Ordnername ▾**. Die Liste zeigt die Unterordner deines
+  Projektordners (Standard `~/CEO`) und die Ordner, in denen du Claude Code zuletzt benutzt hast. Gewechselt wird nur
+  in einen Ordner, den der Mac selbst anbietet. Mit dem Ordner beginnt ein neues Gespräch.
+- **Claude antwortet immer auf Deutsch**, auch wenn du in einer anderen Sprache schreibst. Code und Befehle bleiben
+  unverändert. Abschaltbar im Starter-Menü unter „Claude antwortet auf Deutsch“.
 - Im Menü des **PhoneBox Starter**:
   - **Claude-Chat fürs iPhone** schaltet die Funktion an oder aus.
-  - **Chat-Ordner** legt den Ordner fest, in dem Claude arbeitet.
+  - **Chat-Ordner** legt den Ordner fest, in dem Claude arbeitet (auch vom iPhone aus wechselbar).
+  - **Projekte aus** legt fest, welche Ordner ihre Unterordner als Projekte anbieten.
   - **Claude darf Dateien bearbeiten** (standardmäßig aus) erlaubt Claude, Dateien zu ändern.
 - Ob Claude Befehle ausführen darf, regeln deine Claude-Code-Berechtigungen. Ist der Claude-Code-Hook von PhoneBox
   installiert (Einstellungen am Mac), erscheinen Rückfragen als Erlauben/Ablehnen-Karte auf dem iPhone.

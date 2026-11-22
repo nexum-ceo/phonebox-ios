@@ -14,12 +14,16 @@ enum ChatScript {
     title: 'Claude Code', placeholder: 'Nachricht an Claude Code …', send: 'Senden', stop: 'Stopp', fresh: 'Neuer Chat',
     ready: 'bereit', offline: 'Mac nicht erreichbar – läuft der PhoneBox Starter mit „Claude-Chat fürs iPhone“?',
     working: 'Claude arbeitet …', stopped: '(gestoppt)', empty: 'Schreib Claude Code auf deinem Mac. Neuer Chat beginnt ein neues Gespräch.',
-    folder: 'Ordner', notPaired: 'Erst mit dem Computer über WLAN koppeln.', tools: 'Werkzeuge'
+    folder: 'Ordner', notPaired: 'Erst mit dem Computer über WLAN koppeln.', tools: 'Werkzeuge',
+    projects: 'Projektordner', switching: 'Wechsle den Ordner …', switched: 'Projekt gewechselt: {n} – neues Gespräch',
+    noProjects: 'Der Mac hat noch keine Projekte gemeldet.'
   } : {
     title: 'Claude Code', placeholder: 'Message Claude Code …', send: 'Send', stop: 'Stop', fresh: 'New chat',
     ready: 'ready', offline: 'Mac not reachable – is PhoneBox Starter running with "Claude chat for the iPhone"?',
     working: 'Claude is working …', stopped: '(stopped)', empty: 'Write to Claude Code on your Mac. New chat starts a new conversation.',
-    folder: 'Folder', notPaired: 'Pair with the computer over Wi-Fi first.', tools: 'Tools'
+    folder: 'Folder', notPaired: 'Pair with the computer over Wi-Fi first.', tools: 'Tools',
+    projects: 'Project folders', switching: 'Switching folder …', switched: 'Switched to {n} – new conversation',
+    noProjects: 'The Mac has not listed any projects yet.'
   };
   var post = function (name, args) { try { window.Android[name].apply(null, [window.__phoneboxKey].concat(args || [])); } catch (e) {} };
 
@@ -30,7 +34,8 @@ enum ChatScript {
     '.pb-chat-btn:active{transform:scale(.92)}',
     '.pb-chat-ring{position:absolute;top:6px;right:6px}',
     '#pbChat{position:fixed;inset:0;z-index:60;display:none;flex-direction:column;background:#0b0d12;color:#e8ebf1;',
-    'padding:env(safe-area-inset-top) max(14px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(14px,env(safe-area-inset-left));',
+    // the top edge is a system gesture zone (the panel defers those gestures): keep the buttons out of it
+    'padding:max(18px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(14px,env(safe-area-inset-left));',
     'font-family:inherit;-webkit-user-select:text;user-select:text}',
     '#pbChat.open{display:flex}',
     '#pbChat .pc-head{display:flex;align-items:center;gap:10px;padding:10px 2px 8px;border-bottom:1px solid #1e232c}',
@@ -56,21 +61,59 @@ enum ChatScript {
     '#pbChat textarea:focus{border-color:#d97757}',
     '#pbChat .pc-send{all:unset;cursor:pointer;padding:10px 16px;border-radius:14px;background:#d97757;color:#1b0f0a;font-weight:700;font-size:15px}',
     '#pbChat .pc-send.stop{background:#3a1d20;color:#fca5a5}',
-    '#pbChat .pc-send[disabled]{opacity:.4}'
+    '#pbChat .pc-send[disabled]{opacity:.4}',
+    '#pbChat button.pc-folder{all:unset;cursor:pointer;max-width:38%;padding:7px 12px;border-radius:10px;background:#1a1f28;color:#f0b49d;',
+    'font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '#pbChat .pc-proj{position:absolute;top:76px;left:max(14px,env(safe-area-inset-left));width:min(460px,70%);max-height:calc(100% - 80px);',
+    'overflow-y:auto;background:#141821;border:1px solid #2a303b;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.6);z-index:2;display:none}',
+    '#pbChat .pc-proj.open{display:block}',
+    '#pbChat .pc-proj h4{margin:0;padding:10px 14px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8a92a1}',
+    '#pbChat .pc-p{display:block;padding:9px 14px;border-top:1px solid #1e232c;cursor:pointer}',
+    '#pbChat .pc-p:active{background:#1d2330}',
+    '#pbChat .pc-p b{display:block;font-size:15px;color:#e8ebf1;font-weight:600}',
+    '#pbChat .pc-p small{display:block;font-size:11px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '#pbChat .pc-p.cur b::after{content:" ✓";color:#d97757}',
+    '#pbChat .pc-info{align-self:center;font-size:13px;color:#8a92a1;background:#141821;border-radius:10px;padding:6px 12px}'
   ].join('');
   document.head.appendChild(css);
 
   // ---- the window
   var root = document.createElement('div');
   root.id = 'pbChat';
-  root.innerHTML = '<div class="pc-head"><span class="pc-logo">✳\uFE0E</span><span class="pc-title"></span><span class="pc-state"></span>' +
+  root.innerHTML = '<div class="pc-head"><span class="pc-logo">✳\uFE0E</span><span class="pc-title"></span><button class="pc-folder"></button><span class="pc-state"></span>' +
     '<button class="pc-b pc-new"></button><button class="pc-b pc-close" aria-label="close">✕</button></div>' +
-    '<div class="pc-list"></div>' +
+    '<div class="pc-proj"></div><div class="pc-list"></div>' +
     '<div class="pc-row"><textarea rows="1" enterkeyhint="send"></textarea><button class="pc-send"></button></div>';
   var $ = function (s) { return root.querySelector(s); };
   $('.pc-title').textContent = T.title;
   $('.pc-new').textContent = T.fresh;
   var list = $('.pc-list'), input = $('textarea'), send = $('.pc-send'), state = $('.pc-state');
+  var folderBtn = $('.pc-folder'), proj = $('.pc-proj');
+  var projects = { current: '', items: [] };
+  folderBtn.textContent = '📁 …';
+  function shortHome(p) { return (p || '').replace(/^\/Users\/[^\/]+/, '~'); }
+  function drawProjects() {
+    proj.replaceChildren();
+    var h4 = document.createElement('h4'); h4.textContent = T.projects; proj.appendChild(h4);
+    if (!projects.items.length) { var n = document.createElement('div'); n.className = 'pc-p'; n.textContent = T.noProjects; proj.appendChild(n); }
+    projects.items.forEach(function (it) {
+      var row = document.createElement('div');
+      row.className = 'pc-p' + (it.path === projects.current ? ' cur' : '');
+      var b = document.createElement('b'); b.textContent = it.name;
+      var s = document.createElement('small'); s.textContent = shortHome(it.path);
+      row.append(b, s);
+      row.onclick = function () {
+        proj.classList.remove('open');
+        if (it.path === projects.current || busy) return;
+        post('chatFolder', [it.path]);
+      };
+      proj.appendChild(row);
+    });
+    var cur = projects.items.filter(function (i) { return i.path === projects.current; })[0];
+    folderBtn.textContent = '📁 ' + (cur ? cur.name : shortHome(projects.current).split('/').pop() || '…') + ' ▾';
+  }
+  folderBtn.onclick = function () { if (busy) return; drawProjects(); proj.classList.toggle('open'); };
+  list.addEventListener('click', function () { proj.classList.remove('open'); });
   input.placeholder = T.placeholder;
   ['touchstart', 'touchmove', 'touchend', 'pointerdown', 'click', 'keydown'].forEach(function (ev) {
     root.addEventListener(ev, function (e) { e.stopPropagation(); }, { passive: true });
@@ -86,7 +129,7 @@ enum ChatScript {
     if (!log.length) { var em = document.createElement('div'); em.className = 'pc-empty'; em.textContent = T.empty; list.appendChild(em); }
     log.forEach(function (m) {
       var el = document.createElement('div');
-      el.className = 'pc-msg ' + (m.role === 'user' ? 'pc-user' : m.role === 'error' ? 'pc-err' : 'pc-ai');
+      el.className = m.role === 'info' ? 'pc-info' : 'pc-msg ' + (m.role === 'user' ? 'pc-user' : m.role === 'error' ? 'pc-err' : 'pc-ai');
       el.textContent = m.text || '';
       if (m.role === 'ai' && m.stopped) el.textContent += (m.text ? '\n' : '') + T.stopped;
       if (m.tools && m.tools.length) {
@@ -123,13 +166,25 @@ enum ChatScript {
     if (!m) return;
     if (m.type === 'ready') {
       state.className = 'pc-state ' + (m.ok ? 'ok' : 'bad');
-      state.textContent = m.ok ? T.ready + (m.folder ? ' · ' + T.folder + ': ' + m.folder : '') : (m.paired === false ? T.notPaired : T.offline);
+      state.textContent = m.ok ? T.ready : (m.paired === false ? T.notPaired : T.offline);
+      if (m.ok && m.folder && !projects.current) folderBtn.textContent = '📁 ' + m.folder + ' ▾';
+    } else if (m.type === 'projects') {
+      projects = { current: m.current, items: m.items || [] };
+      drawProjects();
+    } else if (m.type === 'switching') {
+      busy = m.id; log.push({ role: 'info', id: m.id, text: T.switching }); save(); render();
     } else if (m.type === 'sent') {
       busy = m.id; log.push({ role: 'ai', id: m.id, text: '', tools: [] }); save(); render();
     } else if (m.type === 'reply') {
       var msg = null;
       for (var i = log.length - 1; i >= 0; i--) if (log[i].id === m.id) { msg = log[i]; break; }
       if (!msg) return;
+      if (m.status === 'folder') {
+        msg.text = T.switched.replace('{n}', m.text);
+        if (m.tools && m.tools[0]) { projects.current = m.tools[0]; drawProjects(); }
+        busy = null; save(); render();
+        return;
+      }
       msg.tools = m.tools || [];
       if (m.status === 'error') { msg.role = 'error'; msg.text = m.text; }
       else { msg.text = m.text; msg.stopped = m.status === 'stopped'; msg.role = 'ai'; }

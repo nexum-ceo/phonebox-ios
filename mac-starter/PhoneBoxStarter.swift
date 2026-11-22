@@ -68,7 +68,11 @@ struct MenuContent: View {
         Toggle("Claude-Chat fürs iPhone", isOn: $agent.chatEnabled)
         Button("Chat-Ordner: \(agent.chatFolder.lastPathComponent) …") { agent.chooseChatFolder() }
             .disabled(!agent.chatEnabled)
+        Button("Projekte aus: \(ChatRelay.projectRoots().map(\.lastPathComponent).joined(separator: ", ")) …") { agent.chooseProjectRoot() }
+            .disabled(!agent.chatEnabled)
         Toggle("Claude darf Dateien bearbeiten", isOn: $agent.chatAllowEdits)
+            .disabled(!agent.chatEnabled)
+        Toggle("Claude antwortet auf Deutsch", isOn: $agent.chatGerman)
             .disabled(!agent.chatEnabled)
         if agent.chatEnabled && ChatRelay.claudePath() == nil { Text("Claude Code ist nicht installiert") }
         Divider()
@@ -138,6 +142,25 @@ final class AgentController: ObservableObject {
         workingDirectory: { UserDefaults.standard.url(forKey: "chatFolder") ?? FileManager.default.homeDirectoryForCurrentUser },
         allowEdits: { UserDefaults.standard.bool(forKey: "chatAllowEdits") })
 
+    @Published var chatGerman: Bool = (UserDefaults.standard.object(forKey: "chatGerman") as? Bool) ?? true {
+        didSet { UserDefaults.standard.set(chatGerman, forKey: "chatGerman") }
+    }
+
+    /// The folder whose subfolders the phone offers as projects (besides the folders Claude Code was used in lately).
+    func chooseProjectRoot() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.directoryURL = ChatRelay.projectRoots().first
+        panel.message = "In welchen Ordnern liegen deine Projekte? (Ihre Unterordner erscheinen auf dem iPhone.)"
+        NSApp.activate(ignoringOtherApps: true)
+        if panel.runModal() == .OK, !panel.urls.isEmpty {
+            UserDefaults.standard.set(panel.urls.map(\.path), forKey: "projectRoots")
+            objectWillChange.send()
+        }
+    }
+
     func chooseChatFolder() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -153,6 +176,9 @@ final class AgentController: ObservableObject {
     private var working = false
 
     init() {
+        relay.onFolderChange = { [weak self] url in
+            DispatchQueue.main.async { self?.chatFolder = url }
+        }
         if chatEnabled { relay.start() }
         Task {
             await refresh()

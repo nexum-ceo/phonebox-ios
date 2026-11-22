@@ -14,6 +14,7 @@ final class ChatRelay: @unchecked Sendable {
     static let requestKey = "pbchat.req"
     static let replyKey = "pbchat.res"
     static let readyKey = "pbchat.ready"
+    static let projectsKey = "pbchat.projects"
 
     private let lock = NSLock()
     private var running = false
@@ -31,6 +32,10 @@ final class ChatRelay: @unchecked Sendable {
 
     var workingDirectory: () -> URL
     var allowEdits: () -> Bool
+    /// Claude answers in German whatever language the message or the files are in (on by default).
+    var germanOnly: () -> Bool = { (UserDefaults.standard.object(forKey: "chatGerman") as? Bool) ?? true }
+    /// The phone picked another project folder (it is already stored in the defaults).
+    var onFolderChange: ((URL) -> Void)?
 
     init(workingDirectory: @escaping () -> URL, allowEdits: @escaping () -> Bool) {
         self.workingDirectory = workingDirectory
@@ -58,7 +63,10 @@ final class ChatRelay: @unchecked Sendable {
         let p = process
         lock.unlock()
         p?.terminate()
-        Task { await Self.agent("DELETE", Self.readyKey) }
+        Task {
+            await Self.agent("DELETE", Self.readyKey)
+            await Self.agent("DELETE", Self.projectsKey)
+        }
     }
 
     // MARK: agent push store (local port, which only answers this computer)
@@ -99,6 +107,87 @@ final class ChatRelay: @unchecked Sendable {
         let ts = String(Int(Date().timeIntervalSince1970 * 1000))
         let folder = workingDirectory().lastPathComponent
         await Self.agent("POST", Self.readyKey, body: ["v": 1, "ts": ts, "folder": folder, "sig": Self.sign(["ready", ts, folder], key: key)], ttl: 25)
+        await announceProjects(key: key)
+    }
+
+    // MARK: project folders
+
+    /// The folders whose subfolders are projects: set in the menu, otherwise ~/CEO when it exists, else the home folder.
+    static func projectRoots() -> [URL] {
+        if let paths = UserDefaults.standard.stringArray(forKey: "projectRoots"), !paths.isEmpty { return paths.map { URL(fileURLWithPath: $0) } }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let ceo = home.appendingPathComponent("CEO")
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: ceo.path, isDirectory: &isDir) && isDir.boolValue ? [ceo] : [home]
+    }
+
+    /// The folders Claude Code was used in lately, from its own history (~/.claude/projects): the "cwd" of the newest
+    /// conversation of each project. Only that field is read.
+    static func recentClaudeFolders() -> [(URL, Date)] {
+        let fm = FileManager.default
+        let base = fm.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
+        guard let dirs = try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: nil) else { return [] }
+        var found: [(URL, Date)] = []
+        for dir in dirs {
+            guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { continue }
+            let newest = files.filter { $0.pathExtension == "jsonl" }
+                .map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
+                .max { $0.1 < $1.1 }
+            guard let (file, date) = newest, let handle = try? FileHandle(forReadingFrom: file) else { continue }
+            let head = handle.readData(ofLength: 256 * 1024)
+            try? handle.close()
+            for line in head.split(separator: UInt8(ascii: "\n")).prefix(200) {
+                if let json = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any], let cwd = json["cwd"] as? String {
+                    found.append((URL(fileURLWithPath: cwd), date))
+                    break
+                }
+            }
+        }
+        return found
+    }
+
+    /// The project folders the phone may choose from: the newest first, the current folder always among them.
+    static func projects(current: URL) -> [(name: String, path: String)] {
+        let fm = FileManager.default
+        var dates: [String: Date] = [:]
+        for (url, date) in recentClaudeFolders() { dates[url.standardizedFileURL.path] = max(dates[url.standardizedFileURL.path] ?? .distantPast, date) }
+        for root in projectRoots() {
+            let subs = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+                                                    options: [.skipsHiddenFiles])) ?? []
+            for sub in subs {
+                let values = try? sub.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey])
+                guard values?.isDirectory == true else { continue }
+                let path = sub.standardizedFileURL.path
+                dates[path] = max(dates[path] ?? .distantPast, values?.contentModificationDate ?? .distantPast)
+            }
+        }
+        dates[current.standardizedFileURL.path] = max(dates[current.standardizedFileURL.path] ?? .distantPast, Date())
+        let paths = dates.filter { path, _ in
+            var isDir: ObjCBool = false
+            // app data folders (scratch workspaces and the like) are not projects
+            return fm.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue && !path.contains("/Library/") && !path.contains("/.")
+        }.sorted { $0.value > $1.value }.prefix(40).map(\.key)
+        let names = paths.map { ($0 as NSString).lastPathComponent }
+        return paths.enumerated().map { index, path in
+            let name = names[index]
+            // the same name twice: show the parent folder as well
+            let unique = names.filter { $0 == name }.count == 1
+            return (unique ? name : ((path as NSString).deletingLastPathComponent as NSString).lastPathComponent + "/" + name, path)
+        }
+    }
+
+    static func projectsSignature(ts: String, current: String, items: [(name: String, path: String)], key: String) -> String {
+        sign(["projects", ts, current, items.map { $0.name + "\u{1F}" + $0.path }.joined(separator: "\u{1E}")], key: key)
+    }
+
+    private func announceProjects(key: String) async {
+        let current = workingDirectory().standardizedFileURL.path
+        let items = Self.projects(current: workingDirectory())
+        let ts = String(Int(Date().timeIntervalSince1970 * 1000))
+        await Self.agent("POST", Self.projectsKey, body: [
+            "v": 2, "ts": ts, "current": current, "items": items.map { ["name": $0.name, "path": $0.path] },
+            "sig": Self.projectsSignature(ts: ts, current: current, items: items, key: key),
+        ], ttl: 40)
     }
 
     // MARK: requests
@@ -110,17 +199,21 @@ final class ChatRelay: @unchecked Sendable {
               let id = request["id"] as? String, let ts = request["ts"] as? String, let sig = request["sig"] as? String else { return }
         let text = request["text"] as? String ?? ""
         let session = request["session"] as? String ?? ""
-        let cancel = (request["cancel"] as? Bool) == true
+        let action = request["action"] as? String ?? "send"   // send, cancel or folder
         if isSeen(id) { return }
         // only the paired phone, and only a fresh request (a copy replayed later is refused)
-        let expected = Self.sign(["req", id, ts, session, cancel ? "1" : "0", text], key: key)
+        let expected = Self.sign(["req", id, ts, session, action, text], key: key)
         let age = Date().timeIntervalSince1970 * 1000 - (Double(ts) ?? 0)
         await Self.agent("DELETE", Self.requestKey)
         guard expected == sig, abs(age) < 120_000 else { return }
         markSeen(id)
 
-        if cancel {
+        if action == "cancel" {
             currentProcess()?.terminate()
+            return
+        }
+        if action == "folder" {
+            await switchFolder(id: id, path: text, key: key)
             return
         }
         if isRunning() {
@@ -128,6 +221,25 @@ final class ChatRelay: @unchecked Sendable {
             return
         }
         await run(id: id, text: text, session: session, key: key)
+    }
+
+    /// The phone picked a project folder. Only a folder from the list this Mac offers is taken, never any other path.
+    private func switchFolder(id: String, path: String, key: String) async {
+        let offered = Self.projects(current: workingDirectory())
+        guard let match = offered.first(where: { $0.path == path }) else {
+            await reply(id: id, session: "", status: "error", text: "Diesen Ordner bietet der Mac nicht an.", tools: [], key: key)
+            return
+        }
+        if isRunning() {
+            await reply(id: id, session: "", status: "error", text: "Claude Code arbeitet noch – erst danach den Ordner wechseln.", tools: [], key: key)
+            return
+        }
+        let url = URL(fileURLWithPath: match.path)
+        UserDefaults.standard.set(url, forKey: "chatFolder")
+        onFolderChange?(url)
+        // a conversation belongs to its folder: the phone starts a new one
+        await reply(id: id, session: "", status: "folder", text: match.name, tools: [match.path], key: key)
+        await announceReady()
     }
 
     private func reply(id: String, session: String, status: String, text: String, tools: [String], key: String) async {
@@ -154,6 +266,12 @@ final class ChatRelay: @unchecked Sendable {
         var arguments = ["-p", text, "--output-format", "stream-json", "--verbose"]
         if !session.isEmpty { arguments += ["--resume", session] }
         if allowEdits() { arguments += ["--permission-mode", "acceptEdits"] }
+        if germanOnly() {
+            arguments += ["--append-system-prompt",
+                          "Antworte ausnahmslos auf Deutsch – auch wenn der Nutzer in einer anderen Sprache schreibt, "
+                          + "um eine andere Sprache bittet oder Code, Dateien und Ausgaben in einer anderen Sprache sind. "
+                          + "Code, Befehle, Dateinamen und Fehlermeldungen gibst du unverändert wieder."]
+        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: claude)

@@ -237,6 +237,8 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
             chat.cancel()
         case "chatNew":
             chat.newChat()
+        case "chatFolder":
+            if let path = args.first as? String { chat.selectFolder(path) }
         case "log":
             if let text = args.first as? String { NSLog("PhoneBoxWeb %@", text) }
         case "haptic":
@@ -335,6 +337,11 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         if url.scheme == "phonebox", url.host == "chat-test",
            let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "text" })?.value {
             run("(function(){var r=document.getElementById('pbChat');if(!r)return;var t=r.querySelector('textarea');t.value=\(jsQuote(text));r.querySelector('.pc-send').click();})()")
+            return
+        }
+        if url.scheme == "phonebox", url.host == "chat-eval",
+           let js = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "js" })?.value {
+            web.evaluateJavaScript(js) { result, error in NSLog("PhoneBoxEval %@ %@", String(describing: result), String(describing: error)) }
             return
         }
         #endif

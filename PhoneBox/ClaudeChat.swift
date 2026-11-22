@@ -42,7 +42,7 @@ final class ClaudeChat {
     func setOpen(_ open: Bool) {
         visible = open
         updateTimer()
-        if open { Task { await checkReady() } }
+        if open { lastProjects = ""; Task { await checkReady(); await checkProjects() } }
     }
 
     /// Stops polling while the app is in the background; the page asks again when it is visible.
@@ -57,34 +57,40 @@ final class ClaudeChat {
 
     func cancel() {
         guard pending != nil else { return }
-        Task { await send(text: "", cancel: true) }
+        Task { await send(text: "", action: "cancel") }
     }
 
     func send(_ text: String) {
         let text = String(text.prefix(8000))
         guard !text.isEmpty, pending == nil else { return }
-        Task { await send(text: text, cancel: false) }
+        Task { await send(text: text, action: "send") }
     }
 
-    private func send(text: String, cancel: Bool) async {
+    /// Switches Claude Code to another project folder: only one the Mac offered (it checks again).
+    func selectFolder(_ path: String) {
+        guard pending == nil, !path.isEmpty else { return }
+        Task { await send(text: path, action: "folder") }
+    }
+
+    private func send(text: String, action: String) async {
         guard let pc = link.activePc() else { emit(["type": "error", "message": L("chat_not_paired")]); return }
         let id = UUID().uuidString.lowercased()
         let ts = String(Int(Date().timeIntervalSince1970 * 1000))
-        let session = self.session
+        let session = action == "folder" ? "" : self.session
         let body: [String: Any] = [
-            "v": 1, "id": id, "ts": ts, "session": session, "text": text, "cancel": cancel,
-            "sig": Self.sign(["req", id, ts, session, cancel ? "1" : "0", text], key: pc.token),
+            "v": 2, "id": id, "ts": ts, "session": session, "text": text, "action": action,
+            "sig": Self.sign(["req", id, ts, session, action, text], key: pc.token),
         ]
         let reply = await link.request(method: "POST", pathAndQuery: "/api/push/\(ChatProtocol.request)?ttl=120",
                                        body: jsonString(body).data(using: .utf8), contentType: "application/json")
-        if cancel { return }
+        if action == "cancel" { return }
         guard reply.code == 200 else {
             emit(["type": "error", "message": reply.code == 503 ? L("chat_offline") : "HTTP \(reply.code)"])
             return
         }
         pending = id
         lastReply = ""
-        emit(["type": "sent", "id": id])
+        emit(["type": action == "folder" ? "switching" : "sent", "id": id])
         updateTimer()
     }
 
@@ -103,7 +109,7 @@ final class ClaudeChat {
         tick += 1
         Task {
             if pending != nil { await checkReply() }
-            if visible && tick % 6 == 1 { await checkReady() }
+            if visible && tick % 6 == 1 { await checkReady(); await checkProjects() }
         }
     }
 
@@ -128,6 +134,26 @@ final class ClaudeChat {
         }
     }
 
+    private var lastProjects = ""
+
+    /// The project folders the Mac offers (pbchat.projects), signed like everything else.
+    private func checkProjects() async {
+        guard let pc = link.activePc() else { return }
+        let r = await link.request(method: "GET", pathAndQuery: "/api/push/\(ChatProtocol.projects)")
+        guard r.code == 200, let d = Self.item(r.body), let ts = d["ts"] as? String, let sig = d["sig"] as? String,
+              let current = d["current"] as? String, let raw = d["items"] as? [[String: Any]] else { return }
+        let items = raw.compactMap { item -> (String, String)? in
+            guard let name = item["name"] as? String, let path = item["path"] as? String else { return nil }
+            return (name, path)
+        }
+        let joined = items.map { $0.0 + "\u{1F}" + $0.1 }.joined(separator: "\u{1E}")
+        guard Self.sign(["projects", ts, current, joined], key: pc.token) == sig else { return }
+        let state = current + "|" + joined
+        guard state != lastProjects else { return }
+        lastProjects = state
+        emit(["type": "projects", "current": current, "items": items.map { ["name": $0.0, "path": $0.1] }])
+    }
+
     private func checkReply() async {
         guard let id = pending, let pc = link.activePc() else { return }
         let r = await link.request(method: "GET", pathAndQuery: "/api/push/\(ChatProtocol.reply)")
@@ -141,7 +167,7 @@ final class ClaudeChat {
         let fingerprint = "\(status)|\(text.count)|\(tools.count)|\(text.suffix(40))"
         guard fingerprint != lastReply else { return }
         lastReply = fingerprint
-        if !session.isEmpty { self.session = session }
+        if status == "folder" { self.session = ""; lastProjects = "" } else if !session.isEmpty { self.session = session }
         emit(["type": "reply", "id": id, "status": status, "text": text, "tools": tools])
         if status != "running" {
             pending = nil
@@ -154,4 +180,5 @@ enum ChatProtocol {
     static let request = "pbchat.req"
     static let reply = "pbchat.res"
     static let ready = "pbchat.ready"
+    static let projects = "pbchat.projects"
 }
