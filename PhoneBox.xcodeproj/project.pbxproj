@@ -1,0 +1,489 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		6AB0874A10DCA3F60DEFED3B /* AgentLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8172DDE95A6581F44F1889E /* AgentLink.swift */; };
+		629C6C97F07ABAE44695FECB /* AgentStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = F06821B231ADBCF45B88240C /* AgentStream.swift */; };
+		78C2AF958A134640555ADC4D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0130DC406D657B10FFB4F0D7 /* AppDelegate.swift */; };
+		516BA6F3F691CCA4619A67D0 /* BridgeScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10E1FC5F1F9CC6CBC6D19479 /* BridgeScript.swift */; };
+		3DC54E837D8D44C1E3C23C3A /* Dictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC2CB52042324C06805697 /* Dictation.swift */; };
+		50BFEE59094F72C91EB713AE /* PanelSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 211262C91ADB80D121290CF8 /* PanelSchemeHandler.swift */; };
+		89F60BF48E7634D2CD369955 /* PanelViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7556480A82338971E972ED /* PanelViewController.swift */; };
+		6292AD260A02F66912D6F6B2 /* Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF2A0BEA46A1E4D1A242F19 /* Support.swift */; };
+		C170EC07640E0103EC02CBA3 /* TrackpadSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 338C0B8FAE66BD88D7EBACDB /* TrackpadSocket.swift */; };
+		38F50F043C0A5EE998F9585C /* WakePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C0D76B6D47990AD5A746B8F /* WakePacket.swift */; };
+		6DCB8348A5BB45F246B65250 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5C924F20277EA92D2A396828 /* Assets.xcassets */; };
+		6B475A99EFC68849532095A3 /* www in Resources */ = {isa = PBXBuildFile; fileRef = F3C966007B0CF22D4300FC59 /* www */; };
+		CE5A2B892364C5514DF34BC9 /* ar.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 066FD15D6AAB2CC00D662D14 /* ar.lproj */; };
+		8C3B7F25B53C5E4DC2922167 /* cs.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 854BA20DBF664E5AC5194993 /* cs.lproj */; };
+		4A8A45C4F3D8978792025CD3 /* de.lproj in Resources */ = {isa = PBXBuildFile; fileRef = DA520D377D8C3B222CCD7EC3 /* de.lproj */; };
+		9B3B5144C1AB8E425EB8426D /* el.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 0E1F7E8574D1BB732C81342A /* el.lproj */; };
+		5FAEE6E05BB6597973C2F211 /* en.lproj in Resources */ = {isa = PBXBuildFile; fileRef = E9FC3F9DEE8C58A57B1F9114 /* en.lproj */; };
+		3A670E5CEEA16B0C8E05F709 /* es.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 4DB4C963626BFAAF3A581C9C /* es.lproj */; };
+		E3C64105F3C0E43DCB9CABC2 /* fr.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 38A0AE15CB1ED6A30A8D982C /* fr.lproj */; };
+		6E8481E756B2C6EF0FCDD871 /* hi.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 7E2504258E8B264B1BF45714 /* hi.lproj */; };
+		27252B80BDC87E17DC0690F5 /* id.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 71455D9D90762711DA9C0906 /* id.lproj */; };
+		69D2FC14C7AD94F33AFF1B4E /* it.lproj in Resources */ = {isa = PBXBuildFile; fileRef = FFDC32AB8FEC2CC12115169C /* it.lproj */; };
+		18BEF8566E2AC79228DE7738 /* ja.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 8F7605E00FF41C20726EC295 /* ja.lproj */; };
+		5E1915D0C6519D7B836624A7 /* ko.lproj in Resources */ = {isa = PBXBuildFile; fileRef = A374D5D4BFBC5CED98C9224D /* ko.lproj */; };
+		DCA7D4A4386D59056022FB49 /* nl.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 1C4307C6CFC8CA496FB64A2E /* nl.lproj */; };
+		E0650DB5F62F1DD36EAD17BF /* pl.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 49DEC5A5E4D9E03C8D309E83 /* pl.lproj */; };
+		D270A9E0194202A6E8846DA2 /* pt-BR.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 9F3B298CC17607BBF69D6BBA /* pt-BR.lproj */; };
+		BD7D6EE2A60D6FC5C96228D3 /* pt-PT.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 61537E1385EA10149F7B7D83 /* pt-PT.lproj */; };
+		C1F75874F2447C08BDE15289 /* ru.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 429881E5746AAC4BDDE70DBF /* ru.lproj */; };
+		E6BE2702C4E66D22140D05FB /* th.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 6C53D2CFB40F4B269D9C4191 /* th.lproj */; };
+		90E8287303A283C7B03B6197 /* tr.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 603E0169039292CA8979380E /* tr.lproj */; };
+		99F7B874AA4AAB6540EC1A70 /* uk.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 3411BF8D36257AE15E9AAE99 /* uk.lproj */; };
+		A2B77822D12F35794E959500 /* vi.lproj in Resources */ = {isa = PBXBuildFile; fileRef = DA0D57C3B7F9750E719613C4 /* vi.lproj */; };
+		3542FFA7ED8777E2240AA420 /* zh-Hans.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 9663B3A73D9AF5C0250E893B /* zh-Hans.lproj */; };
+		ECC9F30BE9341CBA7C185C32 /* zh-Hant.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 017C724AD217A5591ADF2936 /* zh-Hant.lproj */; };
+		0C4B4A163DA519D938AC10A6 /* PhoneBoxControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 363A9555B344C3B31061DA00 /* PhoneBoxControls.swift */; };
+		A268918424F7BBC11DB752F2 /* PhoneBoxControls.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CFEE55A02984C083C52C8EFC /* PhoneBoxControls.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		6332FA84B7BDEC43CA23DF4F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3B349027366F684A61204B00;
+			remoteInfo = PhoneBoxControls;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		BAE1492BDE49D13FF7E211EB /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			name = "Embed Foundation Extensions";
+			files = (
+				A268918424F7BBC11DB752F2 /* PhoneBoxControls.appex */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		B8172DDE95A6581F44F1889E /* AgentLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentLink.swift"; sourceTree = "<group>"; };
+		F06821B231ADBCF45B88240C /* AgentStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentStream.swift"; sourceTree = "<group>"; };
+		0130DC406D657B10FFB4F0D7 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate.swift"; sourceTree = "<group>"; };
+		10E1FC5F1F9CC6CBC6D19479 /* BridgeScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BridgeScript.swift"; sourceTree = "<group>"; };
+		BCBC2CB52042324C06805697 /* Dictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Dictation.swift"; sourceTree = "<group>"; };
+		211262C91ADB80D121290CF8 /* PanelSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PanelSchemeHandler.swift"; sourceTree = "<group>"; };
+		BC7556480A82338971E972ED /* PanelViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PanelViewController.swift"; sourceTree = "<group>"; };
+		7DF2A0BEA46A1E4D1A242F19 /* Support.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Support.swift"; sourceTree = "<group>"; };
+		338C0B8FAE66BD88D7EBACDB /* TrackpadSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TrackpadSocket.swift"; sourceTree = "<group>"; };
+		8C0D76B6D47990AD5A746B8F /* WakePacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WakePacket.swift"; sourceTree = "<group>"; };
+		C0A508AB271CB47DEF0D3B03 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info.plist"; sourceTree = "<group>"; };
+		5C924F20277EA92D2A396828 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets.xcassets"; sourceTree = "<group>"; };
+		F3C966007B0CF22D4300FC59 /* www */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "www"; sourceTree = "<group>"; };
+		066FD15D6AAB2CC00D662D14 /* ar.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "ar.lproj"; sourceTree = "<group>"; };
+		854BA20DBF664E5AC5194993 /* cs.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "cs.lproj"; sourceTree = "<group>"; };
+		DA520D377D8C3B222CCD7EC3 /* de.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "de.lproj"; sourceTree = "<group>"; };
+		0E1F7E8574D1BB732C81342A /* el.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "el.lproj"; sourceTree = "<group>"; };
+		E9FC3F9DEE8C58A57B1F9114 /* en.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "en.lproj"; sourceTree = "<group>"; };
+		4DB4C963626BFAAF3A581C9C /* es.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "es.lproj"; sourceTree = "<group>"; };
+		38A0AE15CB1ED6A30A8D982C /* fr.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "fr.lproj"; sourceTree = "<group>"; };
+		7E2504258E8B264B1BF45714 /* hi.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "hi.lproj"; sourceTree = "<group>"; };
+		71455D9D90762711DA9C0906 /* id.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "id.lproj"; sourceTree = "<group>"; };
+		FFDC32AB8FEC2CC12115169C /* it.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "it.lproj"; sourceTree = "<group>"; };
+		8F7605E00FF41C20726EC295 /* ja.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "ja.lproj"; sourceTree = "<group>"; };
+		A374D5D4BFBC5CED98C9224D /* ko.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "ko.lproj"; sourceTree = "<group>"; };
+		1C4307C6CFC8CA496FB64A2E /* nl.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "nl.lproj"; sourceTree = "<group>"; };
+		49DEC5A5E4D9E03C8D309E83 /* pl.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "pl.lproj"; sourceTree = "<group>"; };
+		9F3B298CC17607BBF69D6BBA /* pt-BR.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "pt-BR.lproj"; sourceTree = "<group>"; };
+		61537E1385EA10149F7B7D83 /* pt-PT.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "pt-PT.lproj"; sourceTree = "<group>"; };
+		429881E5746AAC4BDDE70DBF /* ru.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "ru.lproj"; sourceTree = "<group>"; };
+		6C53D2CFB40F4B269D9C4191 /* th.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "th.lproj"; sourceTree = "<group>"; };
+		603E0169039292CA8979380E /* tr.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "tr.lproj"; sourceTree = "<group>"; };
+		3411BF8D36257AE15E9AAE99 /* uk.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "uk.lproj"; sourceTree = "<group>"; };
+		DA0D57C3B7F9750E719613C4 /* vi.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "vi.lproj"; sourceTree = "<group>"; };
+		9663B3A73D9AF5C0250E893B /* zh-Hans.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "zh-Hans.lproj"; sourceTree = "<group>"; };
+		017C724AD217A5591ADF2936 /* zh-Hant.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "zh-Hant.lproj"; sourceTree = "<group>"; };
+		363A9555B344C3B31061DA00 /* PhoneBoxControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PhoneBoxControls.swift"; sourceTree = "<group>"; };
+		F06A41DF4B0000A11D9099D0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info.plist"; sourceTree = "<group>"; };
+		F5BF48AA40CAD7891EB709FC /* PhoneBox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhoneBox.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CFEE55A02984C083C52C8EFC /* PhoneBoxControls.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PhoneBoxControls.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7CC421A1DDB28E78FC2224AF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C380EA7C32F43BBFAB3A69EC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A45C494344EA780B34B0A189 /* PhoneBox-iOS */ = {
+			isa = PBXGroup;
+			children = (
+				0BE22E29474101102732C952 /* PhoneBox */,
+				91603439185F727D2B47D53C /* PhoneBoxControls */,
+				2F0DD196A61CB4F095765836 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		0BE22E29474101102732C952 /* PhoneBox */ = {
+			isa = PBXGroup;
+			children = (
+				B8172DDE95A6581F44F1889E /* AgentLink.swift */,
+				F06821B231ADBCF45B88240C /* AgentStream.swift */,
+				0130DC406D657B10FFB4F0D7 /* AppDelegate.swift */,
+				10E1FC5F1F9CC6CBC6D19479 /* BridgeScript.swift */,
+				BCBC2CB52042324C06805697 /* Dictation.swift */,
+				211262C91ADB80D121290CF8 /* PanelSchemeHandler.swift */,
+				BC7556480A82338971E972ED /* PanelViewController.swift */,
+				7DF2A0BEA46A1E4D1A242F19 /* Support.swift */,
+				338C0B8FAE66BD88D7EBACDB /* TrackpadSocket.swift */,
+				8C0D76B6D47990AD5A746B8F /* WakePacket.swift */,
+				C0A508AB271CB47DEF0D3B03 /* Info.plist */,
+				5C924F20277EA92D2A396828 /* Assets.xcassets */,
+				BA418D5002CAA16AE74BE90A /* Resources */,
+			);
+			path = "PhoneBox"; sourceTree = "<group>";
+		};
+		BA418D5002CAA16AE74BE90A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				F3C966007B0CF22D4300FC59 /* www */,
+				066FD15D6AAB2CC00D662D14 /* ar.lproj */,
+				854BA20DBF664E5AC5194993 /* cs.lproj */,
+				DA520D377D8C3B222CCD7EC3 /* de.lproj */,
+				0E1F7E8574D1BB732C81342A /* el.lproj */,
+				E9FC3F9DEE8C58A57B1F9114 /* en.lproj */,
+				4DB4C963626BFAAF3A581C9C /* es.lproj */,
+				38A0AE15CB1ED6A30A8D982C /* fr.lproj */,
+				7E2504258E8B264B1BF45714 /* hi.lproj */,
+				71455D9D90762711DA9C0906 /* id.lproj */,
+				FFDC32AB8FEC2CC12115169C /* it.lproj */,
+				8F7605E00FF41C20726EC295 /* ja.lproj */,
+				A374D5D4BFBC5CED98C9224D /* ko.lproj */,
+				1C4307C6CFC8CA496FB64A2E /* nl.lproj */,
+				49DEC5A5E4D9E03C8D309E83 /* pl.lproj */,
+				9F3B298CC17607BBF69D6BBA /* pt-BR.lproj */,
+				61537E1385EA10149F7B7D83 /* pt-PT.lproj */,
+				429881E5746AAC4BDDE70DBF /* ru.lproj */,
+				6C53D2CFB40F4B269D9C4191 /* th.lproj */,
+				603E0169039292CA8979380E /* tr.lproj */,
+				3411BF8D36257AE15E9AAE99 /* uk.lproj */,
+				DA0D57C3B7F9750E719613C4 /* vi.lproj */,
+				9663B3A73D9AF5C0250E893B /* zh-Hans.lproj */,
+				017C724AD217A5591ADF2936 /* zh-Hant.lproj */,
+			);
+			path = "Resources"; sourceTree = "<group>";
+		};
+		91603439185F727D2B47D53C /* PhoneBoxControls */ = {
+			isa = PBXGroup;
+			children = (
+				363A9555B344C3B31061DA00 /* PhoneBoxControls.swift */,
+				F06A41DF4B0000A11D9099D0 /* Info.plist */,
+			);
+			path = "PhoneBoxControls"; sourceTree = "<group>";
+		};
+		2F0DD196A61CB4F095765836 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F5BF48AA40CAD7891EB709FC /* PhoneBox.app */,
+				CFEE55A02984C083C52C8EFC /* PhoneBoxControls.appex */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		42AEFBAE01D2DFD981F7DA7D /* PhoneBox */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F2F62AAE534BA46EC59716F3;
+			buildPhases = (
+				303CCE6304B962FDAF287552 /* Sources */,
+				7CC421A1DDB28E78FC2224AF /* Frameworks */,
+				F964B4AC93F8CB0399137DF2 /* Resources */,
+				BAE1492BDE49D13FF7E211EB /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5A9082BF535D9EBF6E6C908A /* PBXTargetDependency */,
+			);
+			name = PhoneBox;
+			productName = PhoneBox;
+			productReference = F5BF48AA40CAD7891EB709FC;
+			productType = "com.apple.product-type.application";
+		};
+		3B349027366F684A61204B00 /* PhoneBoxControls */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3D5B5193CF8AC4E310989886;
+			buildPhases = (
+				EF1C39D710665E17A3A25B9F /* Sources */,
+				C380EA7C32F43BBFAB3A69EC /* Frameworks */,
+				8E8ACC78AEBB48CA6947008B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PhoneBoxControls;
+			productName = PhoneBoxControls;
+			productReference = CFEE55A02984C083C52C8EFC;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		46F86FAA6BBF9AC94A7E4595 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+			};
+			buildConfigurationList = 7EF2517A8FE63F4681EC5EEA;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A45C494344EA780B34B0A189;
+			productRefGroup = 2F0DD196A61CB4F095765836 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				42AEFBAE01D2DFD981F7DA7D /* PhoneBox */,
+				3B349027366F684A61204B00 /* PhoneBoxControls */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		F964B4AC93F8CB0399137DF2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6DCB8348A5BB45F246B65250 /* Assets.xcassets */,
+				6B475A99EFC68849532095A3 /* www */,
+				CE5A2B892364C5514DF34BC9 /* ar.lproj */,
+				8C3B7F25B53C5E4DC2922167 /* cs.lproj */,
+				4A8A45C4F3D8978792025CD3 /* de.lproj */,
+				9B3B5144C1AB8E425EB8426D /* el.lproj */,
+				5FAEE6E05BB6597973C2F211 /* en.lproj */,
+				3A670E5CEEA16B0C8E05F709 /* es.lproj */,
+				E3C64105F3C0E43DCB9CABC2 /* fr.lproj */,
+				6E8481E756B2C6EF0FCDD871 /* hi.lproj */,
+				27252B80BDC87E17DC0690F5 /* id.lproj */,
+				69D2FC14C7AD94F33AFF1B4E /* it.lproj */,
+				18BEF8566E2AC79228DE7738 /* ja.lproj */,
+				5E1915D0C6519D7B836624A7 /* ko.lproj */,
+				DCA7D4A4386D59056022FB49 /* nl.lproj */,
+				E0650DB5F62F1DD36EAD17BF /* pl.lproj */,
+				D270A9E0194202A6E8846DA2 /* pt-BR.lproj */,
+				BD7D6EE2A60D6FC5C96228D3 /* pt-PT.lproj */,
+				C1F75874F2447C08BDE15289 /* ru.lproj */,
+				E6BE2702C4E66D22140D05FB /* th.lproj */,
+				90E8287303A283C7B03B6197 /* tr.lproj */,
+				99F7B874AA4AAB6540EC1A70 /* uk.lproj */,
+				A2B77822D12F35794E959500 /* vi.lproj */,
+				3542FFA7ED8777E2240AA420 /* zh-Hans.lproj */,
+				ECC9F30BE9341CBA7C185C32 /* zh-Hant.lproj */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8E8ACC78AEBB48CA6947008B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		303CCE6304B962FDAF287552 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6AB0874A10DCA3F60DEFED3B /* AgentLink.swift */,
+				629C6C97F07ABAE44695FECB /* AgentStream.swift */,
+				78C2AF958A134640555ADC4D /* AppDelegate.swift */,
+				516BA6F3F691CCA4619A67D0 /* BridgeScript.swift */,
+				3DC54E837D8D44C1E3C23C3A /* Dictation.swift */,
+				50BFEE59094F72C91EB713AE /* PanelSchemeHandler.swift */,
+				89F60BF48E7634D2CD369955 /* PanelViewController.swift */,
+				6292AD260A02F66912D6F6B2 /* Support.swift */,
+				C170EC07640E0103EC02CBA3 /* TrackpadSocket.swift */,
+				38F50F043C0A5EE998F9585C /* WakePacket.swift */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EF1C39D710665E17A3A25B9F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0C4B4A163DA519D938AC10A6 /* PhoneBoxControls.swift */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5A9082BF535D9EBF6E6C908A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3B349027366F684A61204B00 /* PhoneBoxControls */;
+			targetProxy = 6332FA84B7BDEC43CA23DF4F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		06DB87319F2818D2126BDA3E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				CURRENT_PROJECT_VERSION = 1;
+				MARKETING_VERSION = 0.9.27;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		EAEC4ABA75D5863313556F12 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				CURRENT_PROJECT_VERSION = 1;
+				MARKETING_VERSION = 0.9.27;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		968426D8A36492C5C326175F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PhoneBox/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = net.oxog.phonebox.deskpanel.ios;
+				PRODUCT_NAME = PhoneBox;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				ENABLE_PREVIEWS = NO;
+			};
+			name = Debug;
+		};
+		038CE5F9D645F2DABC3BB617 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PhoneBox/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = net.oxog.phonebox.deskpanel.ios;
+				PRODUCT_NAME = PhoneBox;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				ENABLE_PREVIEWS = NO;
+			};
+			name = Release;
+		};
+		96EDF90CED1F640D2A1C0B02 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PhoneBoxControls/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = net.oxog.phonebox.deskpanel.ios.controls;
+				PRODUCT_NAME = PhoneBoxControls;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				SKIP_INSTALL = YES;
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+			};
+			name = Debug;
+		};
+		DD2F5D07BAACFD5F93522B31 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PhoneBoxControls/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = net.oxog.phonebox.deskpanel.ios.controls;
+				PRODUCT_NAME = PhoneBoxControls;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				SKIP_INSTALL = YES;
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		7EF2517A8FE63F4681EC5EEA /* Build configuration list for PBXProject "PhoneBox" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				06DB87319F2818D2126BDA3E /* Debug */,
+				EAEC4ABA75D5863313556F12 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F2F62AAE534BA46EC59716F3 /* Build configuration list for PBXNativeTarget "PhoneBox" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				968426D8A36492C5C326175F /* Debug */,
+				038CE5F9D645F2DABC3BB617 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3D5B5193CF8AC4E310989886 /* Build configuration list for PBXNativeTarget "PhoneBoxControls" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				96EDF90CED1F640D2A1C0B02 /* Debug */,
+				DD2F5D07BAACFD5F93522B31 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+}
