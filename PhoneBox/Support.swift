@@ -31,7 +31,8 @@ enum Keychain {
             var add = base
             add[kSecValueData as String] = data
             add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-            SecItemAdd(add as CFDictionary, nil)
+            let status = SecItemAdd(add as CFDictionary, nil)
+            if status != errSecSuccess { NSLog("PhoneBox keychain: could not store %@ (%d)", key, status) }
         }
     }
 }

@@ -12,8 +12,8 @@ cp Info.plist "$app/Contents/Info.plist"
 
 # one binary for Apple silicon and Intel
 for arch in arm64 x86_64; do
-  xcrun swiftc -O -swift-version 5 -parse-as-library -target "$arch-apple-macos13.0" \
-    PhoneBoxStarter.swift -o "build/PhoneBoxStarter-$arch"
+  xcrun swiftc -O -swift-version 5 -parse-as-library -module-name PhoneBoxStarter -target "$arch-apple-macos13.0" \
+    PhoneBoxStarter.swift ChatRelay.swift -o "build/PhoneBoxStarter-$arch"
 done
 lipo -create build/PhoneBoxStarter-arm64 build/PhoneBoxStarter-x86_64 -output "$app/Contents/MacOS/PhoneBoxStarter"
 rm build/PhoneBoxStarter-arm64 build/PhoneBoxStarter-x86_64

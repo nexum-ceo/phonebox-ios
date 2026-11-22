@@ -11,3 +11,5 @@
 "pair_failed_answer" = "%1$@에서 응답 코드 %2$ld을(를) 반환했습니다.";
 "pair_failed_certificate" = "컴퓨터의 인증서가 QR 코드의 인증서와 다릅니다. 페어링을 다시 시작하세요.";
 "ok" = "확인";
+"chat_offline" = "The computer is not reachable.";
+"chat_not_paired" = "Pair with the computer over Wi-Fi first.";

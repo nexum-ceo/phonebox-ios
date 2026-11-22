@@ -11,3 +11,5 @@
 "pair_failed_answer" = "%1$@ respondeu %2$ld.";
 "pair_failed_certificate" = "O computador tem um certificado diferente do QR code. Inicie o pareamento novamente.";
 "ok" = "OK";
+"chat_offline" = "The computer is not reachable.";
+"chat_not_paired" = "Pair with the computer over Wi-Fi first.";

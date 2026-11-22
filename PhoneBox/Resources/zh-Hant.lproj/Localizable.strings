@@ -11,3 +11,5 @@
 "pair_failed_answer" = "%1$@ 傳回回應代碼 %2$ld。";
 "pair_failed_certificate" = "電腦的憑證與 QR 碼中的憑證不符。請重新開始配對。";
 "ok" = "確定";
+"chat_offline" = "The computer is not reachable.";
+"chat_not_paired" = "Pair with the computer over Wi-Fi first.";

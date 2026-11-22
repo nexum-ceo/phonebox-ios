@@ -11,3 +11,5 @@
 "pair_failed_answer" = "%1$@ ส่งรหัสตอบกลับ %2$ld";
 "pair_failed_certificate" = "ใบรับรองของคอมพิวเตอร์ไม่ตรงกับข้อมูลในรหัส QR โปรดเริ่มจับคู่ใหม่";
 "ok" = "ตกลง";
+"chat_offline" = "The computer is not reachable.";
+"chat_not_paired" = "Pair with the computer over Wi-Fi first.";

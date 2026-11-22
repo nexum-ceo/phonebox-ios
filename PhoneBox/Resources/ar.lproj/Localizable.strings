@@ -11,3 +11,5 @@
 "pair_failed_answer" = "ردّ ⁨%1$@⁩ برمز الاستجابة ⁨%2$ld⁩.";
 "pair_failed_certificate" = "شهادة الكمبيوتر تختلف عن الشهادة في رمز QR. ابدأ الاقتران من جديد.";
 "ok" = "موافق";
+"chat_offline" = "The computer is not reachable.";
+"chat_not_paired" = "Pair with the computer over Wi-Fi first.";

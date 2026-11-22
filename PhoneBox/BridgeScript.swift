@@ -15,7 +15,8 @@ enum BridgeScript {
         "is24Hour": "is24Hour", "pcs": "pcs", "canWake": "canWake", "canListen": "canListen",
     ]
     static let acting: [String] = ["trackpad", "setLanguage", "setBrightness", "haptic", "buzz", "setVolumeKeys", "setPinned", "selectPc",
-                                    "forgetPc", "setOrientation", "setHomeScreen", "stopListening", "cancelListening", "log"]
+                                    "forgetPc", "setOrientation", "setHomeScreen", "stopListening", "cancelListening", "log",
+                                    "chatOpen", "chatSend", "chatCancel", "chatNew"] // the last four: the iOS Claude Code chat
 
     static func source(key: String, languages: [String], state: String) -> String {
         """

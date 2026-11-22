@@ -11,3 +11,5 @@
 "pair_failed_answer" = "Ο %1$@ απάντησε %2$ld.";
 "pair_failed_certificate" = "Ο υπολογιστής έχει διαφορετικό πιστοποιητικό από τον κωδικό QR. Ξεκινήστε ξανά τη σύζευξη.";
 "ok" = "OK";
+"chat_offline" = "The computer is not reachable.";
+"chat_not_paired" = "Pair with the computer over Wi-Fi first.";

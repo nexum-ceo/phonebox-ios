@@ -11,3 +11,5 @@
 "pair_failed_answer" = "%1$@ mengembalikan respons %2$ld.";
 "pair_failed_certificate" = "Sertifikat komputer berbeda dari yang tercantum pada kode QR. Mulai lagi penyandingan.";
 "ok" = "OK";
+"chat_offline" = "The computer is not reachable.";
+"chat_not_paired" = "Pair with the computer over Wi-Fi first.";

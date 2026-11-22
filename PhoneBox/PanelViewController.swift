@@ -15,6 +15,7 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
     private var handler: PanelSchemeHandler!
     private var stream: AgentStream!
     private var dictation: Dictation!
+    private var chat: ClaudeChat!
     private let bridgeKey = UUID().uuidString
     private var resumed = false
     private var orientationMode = "landscape"
@@ -78,6 +79,7 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
             self?.run("window.onAgentStream && window.onAgentStream(\(jsQuote(event)), \(jsQuote(data)))")
         }
         dictation = Dictation { [weak self] script in self?.run(script) }
+        chat = ClaudeChat(link: link) { [weak self] script in self?.run(script) }
         volume = VolumeKeys(host: view) { [weak self] key in self?.run("window.onAndroidKey && window.onAndroidKey('\(key)')") }
 
         UIDevice.current.isBatteryMonitoringEnabled = true
@@ -128,6 +130,7 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         controller.removeAllUserScripts()
         let script = BridgeScript.source(key: bridgeKey, languages: Locale.preferredLanguages, state: state)
         controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        controller.addUserScript(WKUserScript(source: ChatScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
     }
 
     private func pushState() {
@@ -157,6 +160,7 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         resumed = true
         run("window.onAppPause && window.onAppPause(false)") // the panel catches up at once
         stream.start()
+        chat.pause(false)
         stateTimer?.invalidate()
         stateTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pushState() } }
         updateProximity()
@@ -169,6 +173,7 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         resumed = false
         stateTimer?.invalidate()
         stateTimer = nil
+        chat.pause(true)
         dictation.cancel(0) // the microphone is never left open behind another app or a dark screen
         stream.stop()
         run("window.onAppPause && window.onAppPause(true)") // tell the panel to stop polling and refreshing while nobody sees it
@@ -224,6 +229,14 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
             if value < 0 { brightnessOverride = nil; UIScreen.main.brightness = systemBrightness }
             else { brightnessOverride = min(max(value, 0.01), 1); if resumed { UIScreen.main.brightness = brightnessOverride! } }
             updateProximity()
+        case "chatOpen":
+            chat.setOpen((args.first as? Bool) ?? ((args.first as? NSNumber)?.boolValue ?? false))
+        case "chatSend":
+            if let text = args.first as? String { chat.send(text) }
+        case "chatCancel":
+            chat.cancel()
+        case "chatNew":
+            chat.newChat()
         case "log":
             if let text = args.first as? String { NSLog("PhoneBoxWeb %@", text) }
         case "haptic":
@@ -317,6 +330,14 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
     // MARK: pairing
 
     func handlePairingURL(_ url: URL) {
+        #if DEBUG
+        // tests only: phonebox://chat-test?text=... types into the chat window and presses Send (the simulator takes no typing)
+        if url.scheme == "phonebox", url.host == "chat-test",
+           let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "text" })?.value {
+            run("(function(){var r=document.getElementById('pbChat');if(!r)return;var t=r.querySelector('textarea');t.value=\(jsQuote(text));r.querySelector('.pc-send').click();})()")
+            return
+        }
+        #endif
         guard let pairing = AgentLink.PairLink.parse(url) else { return }
         confirmPairing(pairing)
     }

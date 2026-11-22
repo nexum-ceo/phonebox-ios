@@ -11,3 +11,5 @@
 "pair_failed_answer" = "%1$@ heeft geantwoord op %2$ld .";
 "pair_failed_certificate" = "De computer heeft een ander certificaat dan de code QR. Begin opnieuw met koppelen.";
 "ok" = "OK";
+"chat_offline" = "The computer is not reachable.";
+"chat_not_paired" = "Pair with the computer over Wi-Fi first.";

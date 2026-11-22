@@ -11,3 +11,5 @@
 "pair_failed_answer" = "%1$@, %2$ld yanıt kodunu döndürdü.";
 "pair_failed_certificate" = "Bilgisayarın sertifikası QR kodundaki sertifikayla eşleşmiyor. Eşleştirmeyi yeniden başlatın.";
 "ok" = "Tamam";
+"chat_offline" = "The computer is not reachable.";
+"chat_not_paired" = "Pair with the computer over Wi-Fi first.";

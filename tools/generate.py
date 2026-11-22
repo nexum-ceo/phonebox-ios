@@ -30,7 +30,17 @@ LANG_DIRS = {  # Android values folder -> iOS .lproj
 KEYS = ["pair_title", "pair_message", "pair_positive", "pair_negative", "pair_progress", "pair_done", "pair_failed_title",
         "pair_failed_unreachable", "pair_failed_code", "pair_failed_answer", "pair_failed_certificate", "ok"]
 
-EXTRA = {}  # the iOS app shows no strings of its own: only the Android app's
+# strings only the iOS app has (its Claude Code chat): English for every language, German for German
+EXTRA_ALL = {
+    "chat_offline": "The computer is not reachable.",
+    "chat_not_paired": "Pair with the computer over Wi-Fi first.",
+}
+EXTRA = {
+    "de": {
+        "chat_offline": "Der Computer ist nicht erreichbar.",
+        "chat_not_paired": "Erst mit dem Computer über WLAN koppeln.",
+    },
+}
 
 
 def android_to_ios(text):
@@ -55,6 +65,7 @@ def generate_strings():
         for node in ET.parse(path).getroot().findall("string"):
             if node.get("name") in KEYS:
                 strings[node.get("name")] = android_to_ios(node.text or "")
+        strings.update(EXTRA_ALL)
         strings.update(EXTRA.get(lang, {}))
         out = os.path.join(RES, lang + ".lproj")
         os.makedirs(out, exist_ok=True)
@@ -75,6 +86,7 @@ def generate_strings():
         for node in ET.parse(path).getroot().findall("string"):
             if node.get("name") in KEYS:
                 strings[node.get("name")] = android_to_ios(node.text or "")
+        strings.update(EXTRA_ALL)
         strings.update(EXTRA.get(lang, {}))
         out = os.path.join(RES, lang + ".lproj")
         os.makedirs(out, exist_ok=True)

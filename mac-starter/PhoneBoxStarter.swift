@@ -65,6 +65,13 @@ struct MenuContent: View {
             .keyboardShortcut(",")
         Button("Log anzeigen") { NSWorkspace.shared.open(AgentController.logURL) }
         Divider()
+        Toggle("Claude-Chat fürs iPhone", isOn: $agent.chatEnabled)
+        Button("Chat-Ordner: \(agent.chatFolder.lastPathComponent) …") { agent.chooseChatFolder() }
+            .disabled(!agent.chatEnabled)
+        Toggle("Claude darf Dateien bearbeiten", isOn: $agent.chatAllowEdits)
+            .disabled(!agent.chatEnabled)
+        if agent.chatEnabled && ChatRelay.claudePath() == nil { Text("Claude Code ist nicht installiert") }
+        Divider()
         Toggle("Agent beim Öffnen starten", isOn: $agent.startOnLaunch)
         Toggle("Starter beim Anmelden öffnen", isOn: Binding(get: { agent.openAtLogin }, set: { agent.setOpenAtLogin($0) }))
         Divider()
@@ -113,10 +120,40 @@ final class AgentController: ObservableObject {
     }
     @Published private(set) var openAtLogin = SMAppService.mainApp.status == .enabled
 
+    // MARK: Claude chat for the phone (see ChatRelay)
+
+    @Published var chatEnabled: Bool = (UserDefaults.standard.object(forKey: "chatEnabled") as? Bool) ?? true {
+        didSet { UserDefaults.standard.set(chatEnabled, forKey: "chatEnabled"); chatEnabled ? relay.start() : relay.stop() }
+    }
+    /// Off by default: Claude may read and answer, but changing files needs this (or an approval on the phone when
+    /// PhoneBox's Claude Code hook is installed).
+    @Published var chatAllowEdits: Bool = UserDefaults.standard.bool(forKey: "chatAllowEdits") {
+        didSet { UserDefaults.standard.set(chatAllowEdits, forKey: "chatAllowEdits") }
+    }
+    @Published var chatFolder: URL = UserDefaults.standard.url(forKey: "chatFolder") ?? FileManager.default.homeDirectoryForCurrentUser {
+        didSet { UserDefaults.standard.set(chatFolder, forKey: "chatFolder") }
+    }
+    private lazy var relay = ChatRelay(
+        // read from the defaults, not from this object: the relay asks from its own task, off the main actor
+        workingDirectory: { UserDefaults.standard.url(forKey: "chatFolder") ?? FileManager.default.homeDirectoryForCurrentUser },
+        allowEdits: { UserDefaults.standard.bool(forKey: "chatAllowEdits") })
+
+    func chooseChatFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = chatFolder
+        panel.message = "In welchem Ordner soll Claude Code arbeiten?"
+        NSApp.activate(ignoringOtherApps: true)
+        if panel.runModal() == .OK, let url = panel.url { chatFolder = url }
+    }
+
     private var timer: Timer?
     private var working = false
 
     init() {
+        if chatEnabled { relay.start() }
         Task {
             await refresh()
             if startOnLaunch && state == .stopped { start() }

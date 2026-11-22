@@ -11,3 +11,5 @@
 "pair_failed_answer" = "%1$@ ने प्रतिक्रिया कोड %2$ld लौटाया।";
 "pair_failed_certificate" = "कंप्यूटर का सर्टिफ़िकेट QR कोड में दिए गए सर्टिफ़िकेट से अलग है। फिर से पेयरिंग शुरू करें।";
 "ok" = "ठीक है";
+"chat_offline" = "The computer is not reachable.";
+"chat_not_paired" = "Pair with the computer over Wi-Fi first.";

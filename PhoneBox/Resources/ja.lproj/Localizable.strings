@@ -11,3 +11,5 @@
 "pair_failed_answer" = "%1$@ からエラー %2$ld が返されました。";
 "pair_failed_certificate" = "このコンピュータは QR コードと異なる証明書を持っています。ペアリングを再開してください。";
 "ok" = "OK";
+"chat_offline" = "The computer is not reachable.";
+"chat_not_paired" = "Pair with the computer over Wi-Fi first.";

@@ -74,6 +74,31 @@ iOS fragt beim ersten Verbinden nach **„Lokales Netzwerk“**: erlauben, sonst
   direkt an die Adresse des PCs. Ob das deinen PC weckt, hängt von Netzwerkkarte und Router ab.
 - **Diktat** nutzt Apples Spracherkennung statt der von Google, und das Panel läuft in WebKit statt Chrome.
 
+## Claude-Code-Chat (nur iPhone)
+
+Auf jeder **Claude**-Karte des Widgets „AI Quotas“ (und auf Claude-Quota-Ringen) sitzt ein **💬**-Knopf. Er öffnet ein
+Chatfenster, in dem du mit **Claude Code auf deinem Mac** schreibst. Das nutzt dein Claude-Abo, also die Quota, die
+das Widget anzeigt.
+
+So läuft eine Nachricht:
+
+```
+iPhone ──(bestehende, verschlüsselte PhoneBox-Verbindung)──▶ Agent: Push-Speicher pbchat.req
+PhoneBox Starter (Mac) liest sie lokal ──▶ claude -p … (im Chat-Ordner) ──▶ Antwort nach pbchat.res ──▶ iPhone
+```
+
+- Es braucht **keinen zusätzlichen Port** und **keine zweite Kopplung**. Der Agent bleibt unverändert.
+- Jede Nachricht und jede Antwort ist mit dem **Kopplungsschlüssel des iPhones signiert** (HMAC-SHA256). Andere
+  Absender, etwa Geräte mit dem Webhook-Schlüssel des Agenten, können Claude Code deshalb nicht steuern.
+- Das Gespräch wird fortgesetzt (`--resume`), bis du **Neuer Chat** tippst. **Stopp** bricht eine laufende Antwort ab.
+- Im Menü des **PhoneBox Starter**:
+  - **Claude-Chat fürs iPhone** schaltet die Funktion an oder aus.
+  - **Chat-Ordner** legt den Ordner fest, in dem Claude arbeitet.
+  - **Claude darf Dateien bearbeiten** (standardmäßig aus) erlaubt Claude, Dateien zu ändern.
+- Ob Claude Befehle ausführen darf, regeln deine Claude-Code-Berechtigungen. Ist der Claude-Code-Hook von PhoneBox
+  installiert (Einstellungen am Mac), erscheinen Rückfragen als Erlauben/Ablehnen-Karte auf dem iPhone.
+- Voraussetzung: Das iPhone ist per WLAN gekoppelt, und der PhoneBox Starter läuft auf dem Mac.
+
 ## PhoneBox Starter (Mac)
 
 `mac-starter/` ist eine kleine Menüleisten-App für den Mac, die den PhoneBox-Agenten (den Server, mit dem sich das

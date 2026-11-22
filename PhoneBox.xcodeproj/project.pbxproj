@@ -11,6 +11,8 @@
 		629C6C97F07ABAE44695FECB /* AgentStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = F06821B231ADBCF45B88240C /* AgentStream.swift */; };
 		78C2AF958A134640555ADC4D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0130DC406D657B10FFB4F0D7 /* AppDelegate.swift */; };
 		516BA6F3F691CCA4619A67D0 /* BridgeScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10E1FC5F1F9CC6CBC6D19479 /* BridgeScript.swift */; };
+		7F558B44DC19DF24127A0D72 /* ChatScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 139AEE022293AF22334AA27B /* ChatScript.swift */; };
+		2027E8A71CD431A82BA3CBF9 /* ClaudeChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57B0BE8451809CB9A9BF81AA /* ClaudeChat.swift */; };
 		3DC54E837D8D44C1E3C23C3A /* Dictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC2CB52042324C06805697 /* Dictation.swift */; };
 		50BFEE59094F72C91EB713AE /* PanelSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 211262C91ADB80D121290CF8 /* PanelSchemeHandler.swift */; };
 		89F60BF48E7634D2CD369955 /* PanelViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7556480A82338971E972ED /* PanelViewController.swift */; };
@@ -75,6 +77,8 @@
 		F06821B231ADBCF45B88240C /* AgentStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentStream.swift"; sourceTree = "<group>"; };
 		0130DC406D657B10FFB4F0D7 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate.swift"; sourceTree = "<group>"; };
 		10E1FC5F1F9CC6CBC6D19479 /* BridgeScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BridgeScript.swift"; sourceTree = "<group>"; };
+		139AEE022293AF22334AA27B /* ChatScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatScript.swift"; sourceTree = "<group>"; };
+		57B0BE8451809CB9A9BF81AA /* ClaudeChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeChat.swift"; sourceTree = "<group>"; };
 		BCBC2CB52042324C06805697 /* Dictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Dictation.swift"; sourceTree = "<group>"; };
 		211262C91ADB80D121290CF8 /* PanelSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PanelSchemeHandler.swift"; sourceTree = "<group>"; };
 		BC7556480A82338971E972ED /* PanelViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PanelViewController.swift"; sourceTree = "<group>"; };
@@ -147,6 +151,8 @@
 				F06821B231ADBCF45B88240C /* AgentStream.swift */,
 				0130DC406D657B10FFB4F0D7 /* AppDelegate.swift */,
 				10E1FC5F1F9CC6CBC6D19479 /* BridgeScript.swift */,
+				139AEE022293AF22334AA27B /* ChatScript.swift */,
+				57B0BE8451809CB9A9BF81AA /* ClaudeChat.swift */,
 				BCBC2CB52042324C06805697 /* Dictation.swift */,
 				211262C91ADB80D121290CF8 /* PanelSchemeHandler.swift */,
 				BC7556480A82338971E972ED /* PanelViewController.swift */,
@@ -324,6 +330,8 @@
 				629C6C97F07ABAE44695FECB /* AgentStream.swift */,
 				78C2AF958A134640555ADC4D /* AppDelegate.swift */,
 				516BA6F3F691CCA4619A67D0 /* BridgeScript.swift */,
+				7F558B44DC19DF24127A0D72 /* ChatScript.swift */,
+				2027E8A71CD431A82BA3CBF9 /* ClaudeChat.swift */,
 				3DC54E837D8D44C1E3C23C3A /* Dictation.swift */,
 				50BFEE59094F72C91EB713AE /* PanelSchemeHandler.swift */,
 				89F60BF48E7634D2CD369955 /* PanelViewController.swift */,

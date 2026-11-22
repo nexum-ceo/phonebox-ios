@@ -11,3 +11,5 @@
 "pair_failed_answer" = "%1$@ antwortete auf %2$ld .";
 "pair_failed_certificate" = "Der Computer verfügt über ein anderes Zertifikat als den Code QR. Starten Sie die Kopplung erneut.";
 "ok" = "OK";
+"chat_offline" = "Der Computer ist nicht erreichbar.";
+"chat_not_paired" = "Erst mit dem Computer über WLAN koppeln.";
