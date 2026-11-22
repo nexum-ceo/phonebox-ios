@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>PhoneBox Post</title>
+<style>
+  html, body { margin: 0; width: 1080px; height: 1350px; overflow: hidden; }
+  body {
+    background: radial-gradient(900px 700px at 80% 8%, rgba(32, 201, 170, .22), transparent 60%),
+                radial-gradient(800px 700px at 10% 95%, rgba(168, 85, 247, .20), transparent 60%), #07090d;
+    color: #f2f4f7; font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    display: flex; flex-direction: column; align-items: center; box-sizing: border-box; padding: 84px 56px 60px;
+  }
+  .kicker { font-size: 26px; letter-spacing: .24em; text-transform: uppercase; color: #2dd4bf; font-weight: 700; }
+  h1 { font-size: 92px; line-height: 1.02; margin: 18px 0 0; text-align: center; font-weight: 800; letter-spacing: -.02em; }
+  h1 span { background: linear-gradient(90deg, #2dd4bf, #a78bfa); -webkit-background-clip: text; color: transparent; }
+  .sub { font-size: 34px; line-height: 1.35; color: #b6bcc8; text-align: center; margin: 26px 40px 0; }
+  .phone {
+    margin-top: 58px; width: 968px; padding: 22px; border-radius: 74px; background: #121418;
+    box-shadow: 0 0 0 3px #2a2e36, 0 40px 90px rgba(0,0,0,.6), 0 0 120px rgba(45, 212, 191, .12);
+    position: relative;
+  }
+  .phone img { display: block; width: 100%; border-radius: 54px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-top: 56px; }
+  .chip { font-size: 28px; padding: 14px 26px; border-radius: 999px; background: rgba(255,255,255,.06);
+          border: 1px solid rgba(255,255,255,.12); color: #e6e9ef; }
+  .foot { margin-top: auto; text-align: center; }
+  .cta { font-size: 34px; font-weight: 700; color: #f2f4f7; }
+  .cta b { color: #2dd4bf; font-weight: 700; }
+  .credit { font-size: 22px; color: #7c8494; margin-top: 14px; }
+</style>
+</head>
+<body>
+  <div class="kicker">Open Source · kostenlos</div>
+  <h1>PhoneBox<br><span>fürs iPhone</span></h1>
+  <div class="sub">Mach dein altes iPhone zum Desk-Panel für deinen Computer.</div>
+  <div class="phone"><img src="panel.png" alt=""></div>
+  <div class="chips">
+    <div class="chip">📊 PC-Werte live</div>
+    <div class="chip">🤖 Claude &amp; Codex Quotas</div>
+    <div class="chip">🎵 Musik steuern</div>
+    <div class="chip">🧩 129 Widgets</div>
+    <div class="chip">🔒 Ohne Account &amp; Cloud</div>
+  </div>
+  <div class="foot">
+    <div class="cta">Code: <b>github.com/nexum-ceo/phonebox-ios</b></div>
+    <div class="credit">Selbst bauen mit Xcode · iOS-Port von PhoneBox (github.com/ersinkoc/phonebox), MIT</div>
+  </div>
+</body>
+</html>
