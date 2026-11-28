@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><title>PhoneBox Chat Post</title>
+<style>
+  html,body{margin:0;width:1080px;height:1350px;overflow:hidden}
+  body{background:radial-gradient(900px 800px at 85% 15%,rgba(217,119,87,.28),transparent 60%),radial-gradient(800px 700px at 0% 100%,rgba(45,212,191,.16),transparent 60%),#07090d;
+    color:#f2f4f7;font-family:-apple-system,"SF Pro Display","Helvetica Neue",Arial,sans-serif;position:relative}
+  .left{position:absolute;left:64px;top:90px;width:430px;bottom:64px;display:flex;flex-direction:column}
+  .kicker{font-size:24px;letter-spacing:.22em;text-transform:uppercase;color:#d97757;font-weight:700}
+  h1{font-size:76px;line-height:1.02;margin:22px 0 0;font-weight:800;letter-spacing:-.025em}
+  h1 span{background:linear-gradient(90deg,#d97757,#f0b49d);-webkit-background-clip:text;color:transparent}
+  .sub{font-size:30px;line-height:1.38;color:#b6bcc8;margin-top:30px}
+  ul{list-style:none;padding:0;margin:44px 0 0;display:flex;flex-direction:column;gap:20px}
+  li{font-size:28px;line-height:1.25;padding:16px 22px;border-radius:20px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1)}
+  li b{color:#f0b49d;font-weight:700}
+  .foot{margin-top:auto}
+  .cta{font-size:26px;font-weight:700}.cta b{color:#d97757}
+  .credit{font-size:21px;color:#7c8494;margin-top:10px;line-height:1.35}
+  .phone{position:absolute;right:44px;top:215px;width:470px;padding:16px;border-radius:78px;background:#121418;
+    box-shadow:0 0 0 3px #2a2e36,0 40px 100px rgba(0,0,0,.65),0 0 140px rgba(217,119,87,.2)}
+  .phone .crop{height:880px;overflow:hidden;border-radius:64px}.phone img{display:block;width:100%;margin-top:-72px}
+</style></head><body>
+<div class="left">
+  <div class="kicker">PhoneBox · iPhone</div>
+  <h1>Claude Code <span>auf dem iPhone</span></h1>
+  <div class="sub">Tippe auf die Claude-Karte und arbeite mit Claude Code auf deinem Mac.</div>
+  <ul>
+    <li><b>📁 Projekt wechseln</b> mit einem Tipp</li>
+    <li><b>🇩🇪 Antworten auf Deutsch</b>, auch bei englischen Fragen</li>
+    <li><b>📱 Hoch- und Querformat</b></li>
+    <li><b>🔒 Dein WLAN, keine Cloud</b></li>
+  </ul>
+  <div class="foot">
+    <div class="cta">Open Source: <b>github.com/nexum-ceo/phonebox-ios</b></div>
+    <div class="credit">iOS-Port von PhoneBox (ersinkoc/phonebox, MIT). Echter Chat aus der App.</div>
+  </div>
+</div>
+<div class="phone"><div class="crop"><img src="chat-portrait.png" alt=""></div></div>
+</body></html>
