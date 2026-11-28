@@ -12,12 +12,12 @@
 <!-- Pages and widgets are built by main.js and widgets/*.js from the layout designed in the agent's settings page. -->
 <div id="pager"></div>
 
-<nav id="dots" data-i18n-title="panel.allPages" title="All pages"></nav>
+<nav id="dots"></nav>
 <div id="ptitle"></div>
 <div id="pagePauseOverlay" aria-hidden="true"></div>
 
 <div id="overview" hidden>
-  <div class="ov-head"><span data-i18n="panel.allPages">All pages</span> <small data-i18n="panel.overviewHint">tap one to jump · volume keys flip pages · long-press a page to come back here</small><span id="ovPcs"></span><button class="ov-pc" id="ovRules" hidden></button></div>
+  <div class="ov-head"><span data-i18n="panel.allPages">All pages</span> <small data-i18n="panel.overviewHint">tap one to jump · volume keys flip pages · long-press a page to come back here</small><span id="ovPcs"></span><button class="ov-pc" id="ovRules" hidden></button><button class="ov-pc" id="ovBridge" hidden></button></div>
   <div id="ovGrid"></div>
 </div>
 
@@ -88,7 +88,11 @@
       var text = el.querySelector('span');
       if (text) {
         text.removeAttribute('data-i18n');
-        text.textContent = 'This Android System WebView is too old to run the panel. Update Android System WebView or '
+        // the version in use, not the one installed: on Android 5 and 6 a phone maker's WebView can stay in use while
+        // Google's from Google Play is installed and never used
+        var ver = /Chrome\/(\d+)/.exec(navigator.userAgent);
+        text.textContent = 'This Android System WebView' + (ver ? ' (version ' + ver[1] + ')' : '')
+          + ' is too old to run the panel. Update Android System WebView or '
           + 'Google Chrome from Google Play (version 80 or later), then open PhoneBox again.';
       }
       if (btn) btn.style.display = 'none';
@@ -171,8 +175,10 @@
 <script src="locale-uk.js"></script>
 <script src="locale-hi.js"></script>
 <script src="locale-cs.js"></script>
+<script src="locale-ro.js"></script>
 <script src="locale-ar.js"></script>
 <script src="locale-zh-Hant.js"></script>
+<script src="locale-zz-night.js"></script>
 <script src="i18n.js"></script>
 <script type="module" src="main.js"></script>
 </body>

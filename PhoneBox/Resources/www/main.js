@@ -1,6 +1,7 @@
 // PhoneBox desk panel: core, pages, navigation and data from the agent. The widgets live in widgets/*.js;
 // they import what they need from here, so this module must not run code that needs them while it loads
 // (the start section at the end runs after every module has loaded).
+import { designGrid, gridForViewport, placeWidget, widgetsOnGrid } from './grid.js';
 import { W } from './registry.js';
 import './appearance.js';
 import { cached } from './widgets/helpers.js';
@@ -19,7 +20,8 @@ import './widgets/spectrum.js';
 import './widgets/steam-library.js';
 import './widgets/lyrics.js';
 
-// PhoneBox desk panel. Pages are 12 × 6 grids of widgets, designed in the agent's settings page.
+// PhoneBox desk panel. Pages are grids of widgets, designed in the agent's settings page.
+// A phone is 12 × 6. A tablet keeps the 12 columns and adds rows, so the page holds more widgets.
 // The panel talks to the PhoneBox agent through "/agent/*", which the Android shell proxies over USB
 // (adb reverse) or Wi-Fi to the computer.
 
@@ -27,7 +29,13 @@ export const API = '/agent/api';
 // The phone's native proxy only forwards requests that carry this header (or image GETs), so script in a sandboxed
 // Custom HTML widget cannot reach the agent: adding the header to a cross-origin request needs a CORS preflight,
 // which the proxy refuses. See MainActivity.fromPanel.
-export const PANEL_HEADERS = { 'X-PhoneBox-Panel': '1' };
+// A panel in a browser can stand for a device of its own (/panel/?device=monitor): the agent then gives it that device's
+// pages and home page from Settings › Phones, as it does for each phone (the app sends its id itself). Same rule as the
+// agent's for device ids: letters and digits, up to 32.
+const DEVICE = (() => {
+  try { const d = new URLSearchParams(location.search).get('device') || ''; return /^[A-Za-z0-9]{1,32}$/.test(d) ? d : ''; } catch (_) { return ''; }
+})();
+export const PANEL_HEADERS = { 'X-PhoneBox-Panel': '1', ...(DEVICE ? { 'X-PhoneBox-Device': DEVICE, 'X-PhoneBox-Model': 'Browser' } : {}) };
 export const I18n = window.PhoneBoxI18n;
 export const t = (key, vars) => (I18n ? I18n.t(key, vars) : key);
 /** A panel literal translated by its English text (i18n.js PANEL); English when the language has no entry. */
@@ -55,7 +63,7 @@ export const $ = (id) => document.getElementById(id);
 // The native bridge (window.Android) is in every frame, sandboxed widgets included, so each call carries a key that only
 // the panel's own frames receive (MainActivity.bridgeKey). This wrapper adds it.
 const BRIDGE = ['battery', 'buzz', 'haptic', 'is24Hour', 'pcs', 'selectPc', 'forgetPc', 'setBrightness', 'setHomeScreen', 'setOrientation',
-  'setPinned', 'setVolumeKeys', 'setLanguage', 'transport', 'sensors', 'version', 'canListen', 'listen', 'stopListening', 'cancelListening', 'trackpad', 'canWake', 'wakePc'];
+  'setPinned', 'setVolumeKeys', 'setStandby', 'setLanguage', 'transport', 'sensors', 'version', 'canListen', 'listen', 'stopListening', 'cancelListening', 'trackpad', 'canWake', 'wakePc', 'openBridge', 'phoneMedia', 'phoneMediaArt', 'phoneMediaControl', 'phoneAudio', 'phoneVolume', 'phoneMute'];
 export const bridge = typeof Android === 'undefined' ? null : Object.fromEntries(BRIDGE.filter((m) => typeof Android[m] === 'function')
   .map((m) => [m, (...args) => Android[m](window.__phoneboxKey || '', ...args)]));
 // Live preview inside the agent's layout editor: the layout comes from the editor (unsaved), not from the agent.
@@ -76,7 +84,7 @@ export const FALLBACK_PAGES = [{
 export const DEFAULT_CFG = {
   weather: { city: 'Tallinn', lat: 59.437, lon: 24.745, unit: 'celsius', model: '' },
   night: { enabled: true, start: '00:30', end: '07:30', brightness: 0.02 },
-  display: { showSeconds: true, idleReturnSec: 90, vibrate: true, finishToast: true, volumeKeys: true, nightWhenUnreachable: false, unreachableNightDelayMin: 5 },
+  display: { showSeconds: true, idleReturnSec: 90, vibrate: true, finishToast: true, finishSound: false, approvalSound: false, finishSoundVolume: 70, volumeKeys: true, nightWhenUnreachable: false, unreachableNightDelayMin: 5, pageBar: 'dots', pageBarSide: 'bottom' },
   opencode: { alwaysCountdownSec: 10 },
   pages: FALLBACK_PAGES,
   shortcuts: [],
@@ -126,8 +134,12 @@ export let pushVersion = null;
 export const D = { state: null, quotas: null, work: null, procs: null, push: {}, weather: null, calendar: null, notes: store.get('notes', []) };
 
 export const HIST = 90;
-export const hist = { cpu: [], gpu: [], ram: [], vram: [], down: [], up: [], ping: [], gputemp: [], cputemp: [], hotspot: [], gpupower: [], gpuclock: [] };
+export const hist = { cpu: [], gpu: [], ram: [], vram: [], down: [], up: [], ping: [], gputemp: [], cputemp: [], hotspot: [], gpupower: [], gpuclock: [], cpupower: [] };
 export const pushHist = (k, v) => { const a = hist[k]; a.push(v ?? 0); if (a.length > HIST) a.shift(); };
+// the agent numbers its samples (pc.seq); a state sent again for a media or volume change carries the same one and
+// adds no point, so the charts move once per sample. Agents before seq send none: every state adds a point, as before
+let histSeq = null;
+let histRunId = null;
 
 // ---------------------------------------------------------------- helpers
 /** fetch() to the panel's local/USB feed proxy when the phone cannot reach an allowed public HTTPS feed directly. */
@@ -244,6 +256,15 @@ const ICONS = {
   err: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 8v4M12 16h.01',
   info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01',
   monitor: 'M2 3h20v14H2zM8 21h8M12 17v4',
+  'mic-off': 'M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8|M3 3l18 18',
+  'headphone-off': 'M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3|M3 3l18 18',
+  'log-out': 'M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4|M10 17l-5-5 5-5|M5 12h12',
+  'chevron-down': 'm6 9 6 6 6-6',
+  'chevron-right': 'm9 18 6-6-6-6',
+  'arrow-left': 'M19 12H5|M12 19l-7-7 7-7',
+  'screen-share': 'M13 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3|M8 21h8|M12 17v4|M17 8l5-5|M17 3h5v5',
+  'screen-share-off': 'M13 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3|M8 21h8|M12 17v4|M22 3l-5 5|M17 3l5 5',
+  'external-link': 'M15 3h6v6|M10 14L21 3|M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6',
   pause: 'M6 4h4v16H6zM14 4h4v16h-4z',
   play: 'M6 3l14 9-14 9V3z',
   mic: 'M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8',
@@ -421,15 +442,29 @@ export function hour12() {
   }
   return false;
 }
-export const fmtClock = (H, M) => (hour12() ? `${H % 12 || 12}:${pad(M)} ${H < 12 ? 'AM' : 'PM'}` : `${pad(H)}:${pad(M)}`);
+let clockPeriodLocale, clockPeriodFormatter;
+export function clockPeriod(date) {
+  const fallback = date.getHours() < 12 ? 'AM' : 'PM';
+  try {
+    if (clockPeriodLocale !== LOCALE) {
+      clockPeriodFormatter = new Intl.DateTimeFormat(LOCALE, { hour: 'numeric', hour12: true });
+      clockPeriodLocale = LOCALE;
+    }
+    return clockPeriodFormatter.formatToParts(date).find(part => part.type === 'dayPeriod')?.value || fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+export const fmtClock = (H, M, period = H < 12 ? 'AM' : 'PM') => (hour12() ? `${H % 12 || 12}:${pad(M)} ${period}` : `${pad(H)}:${pad(M)}`);
+const fmtNightClock = (d) => fmtClock(d.getHours(), d.getMinutes(), clockPeriod(d));
 export const fmtHM = (d) => fmtClock(d.getHours(), d.getMinutes());
 export const fmtTime = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + pad(s % 60); };
 export function fmtRate(bps) {
   if (bps == null) return ['—', ''];
-  if (bps >= 1e9) return [(bps / 1e9).toFixed(1), 'GB/s'];
-  if (bps >= 1e6) return [(bps / 1e6).toFixed(bps >= 1e8 ? 0 : 1), 'MB/s'];
-  if (bps >= 1e3) return [(bps / 1e3).toFixed(0), 'KB/s'];
-  return [Math.round(bps).toString(), 'B/s'];
+  if (bps >= 1e9) return [(bps / 1e9).toFixed(1), tp('GB/s')];
+  if (bps >= 1e6) return [(bps / 1e6).toFixed(bps >= 1e8 ? 0 : 1), tp('MB/s')];
+  if (bps >= 1e3) return [(bps / 1e3).toFixed(0), tp('KB/s')];
+  return [Math.round(bps).toString(), tp('B/s')];
 }
 export const rateStr = (b) => fmtRate(b).join(' ');
 export function fmtDur(ms) {
@@ -443,13 +478,13 @@ export function fmtDur(ms) {
 export function shortDur(ms) {
   const m = Math.max(0, Math.floor(ms / 60000));
   if (m < 1) return t('time.now');
-  if (m < 60) return m + 'm';
+  if (m < 60) return tpv('{m}m', { m });
   const hr = Math.floor(m / 60);
-  return hr < 24 ? `${hr}h ${m % 60}m` : `${Math.floor(hr / 24)}d`;
+  return hr < 24 ? tpv('{h}h {m}m', { h: hr, m: m % 60 }) : tpv('{d}d', { d: Math.floor(hr / 24) });
 }
 export const ago = (ts) => { const d = Date.now() - ts; return d < 60_000 ? t('time.justNow') : t('time.ago', { dur: shortDur(d) }); };
 export const r1 = (v) => (v == null ? '—' : (Math.round(v * 10) / 10).toString());
-export const fmtMem = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : Math.round(mb) + ' MB');
+export const fmtMem = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(1) + ' ' + tp('GB') : Math.round(mb) + ' ' + tp('MB'));
 export const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 export const color = (c) => (c && c.startsWith('--') ? cssVar(c) : c);
 
@@ -482,21 +517,20 @@ export function chart(canvas, series, opts = {}) {
     g.lineWidth = 1;
     for (let i = 1; i < 4; i++) { const y = Math.round((hh * i) / 4) + 0.5; g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
   }
-  const top = 4 * dpr;
-  for (const s of series) {
-    const d = s.data;
-    if (d.length < 2) continue;
-    const max = s.max || 1;
-    const step = w / (HIST - 1);
-    const x0 = w - (d.length - 1) * step;
-    const y = (v) => hh - (Math.min(v, max) / max) * (hh - top);
+  const top = 4 * dpr, step = w / (HIST - 1);
+  const visible = series.filter(s => s.data.length >= 2);
+  const trace = ({ data, max = 1 }) => {
+    max = max || 1;
+    const x0 = w - (data.length - 1) * step;
+    const y = v => hh - (Math.min(v, max) / max) * (hh - top);
     g.beginPath();
-    g.moveTo(x0, y(d[0]));
-    for (let i = 1; i < d.length; i++) g.lineTo(x0 + i * step, y(d[i]));
-    g.lineWidth = 1.6 * dpr;
-    g.strokeStyle = s.color;
-    g.lineJoin = 'round';
-    g.stroke();
+    g.moveTo(x0, y(data[0]));
+    for (let i = 1; i < data.length; i++) g.lineTo(x0 + i * step, y(data[i]));
+    return x0;
+  };
+  // Draw all shading first so a higher series cannot paint over a different series' line.
+  for (const s of visible) {
+    const x0 = trace(s);
     g.lineTo(w, hh);
     g.lineTo(x0, hh);
     g.closePath();
@@ -505,6 +539,13 @@ export function chart(canvas, series, opts = {}) {
     grad.addColorStop(1, s.color + '00');
     g.fillStyle = grad;
     g.fill();
+  }
+  g.lineWidth = 1.6 * dpr;
+  g.lineJoin = 'round';
+  for (const s of visible) {
+    trace(s);
+    g.strokeStyle = s.color;
+    g.stroke();
   }
 }
 
@@ -539,14 +580,17 @@ export function gpuMem(g) {
   }
   return g.vramTotal ? { label: 'VRAM', used: g.vramUsed || 0, total: g.vramTotal } : null;
 }
-const memText = (m) => `${r1(m.used)} / ${Math.round(m.total)} GB`;
+const memText = (m) => `${r1(m.used)} / ${Math.round(m.total)} ${tp('GB')}`;
 /** Board power: watts when a sensor gives them, otherwise the share of the power limit Windows reports. */
-export const gpuPower = (g) => (g?.power != null ? `${Math.round(g.power)} W` : g?.powerPct != null ? tpv('{n}% power', { n: Math.round(g.powerPct) }) : null);
+export const gpuPower = (g) => (g?.power != null ? `${Math.round(g.power)} ${tp("W")}` : g?.powerPct != null ? tpv('{n}% power', { n: Math.round(g.powerPct) }) : null);
 export const netMax = () => Math.max(1, ...hist.down, ...hist.up) * 1.15;
 
 export const METRICS = {
   cpu: { label: 'CPU', name: 'Processor', color: '--cpu', unit: '%', max: () => 100, val: (s) => s.pc?.cpu,
-    sub: (s) => (s.pc?.cpuTemp != null ? `${Math.round(s.pc.cpuTemp)}°C` : shortCpu(s.pc?.cpuName)), title: (s) => s.pc?.cpuName },
+    sub: (s) => {
+      const parts = [s.pc?.cpuTemp != null ? `${Math.round(s.pc.cpuTemp)}°C` : null, s.pc?.cpuPower != null ? `${Math.round(s.pc.cpuPower)} ${tp("W")}` : null].filter(Boolean);
+      return parts.length ? parts.join(' · ') : shortCpu(s.pc?.cpuName);
+    }, title: (s) => s.pc?.cpuName },
   gpu: { label: 'GPU', name: 'Graphics', color: '--gpu', unit: '%', max: () => 100, val: (s) => gpuOf(s)?.util,
     sub: (s) => {
       const g = gpuOf(s);
@@ -558,7 +602,7 @@ export const METRICS = {
       return shortGpu(g.name) || tp('Active');
     }, title: (s) => gpuOf(s)?.name },
   ram: { label: 'RAM', name: 'Memory', color: '--ram', unit: 'GB', max: (s) => s.pc?.ramTotalGb || 1, val: (s) => s.pc?.ramUsedGb, fmt: r1,
-    pct: (s) => (s.pc ? (s.pc.ramUsedGb / s.pc.ramTotalGb) * 100 : null), sub: (s) => (s.pc && s.pc.ramTotalGb ? `${r1(s.pc.ramUsedGb)} / ${Math.round(s.pc.ramTotalGb)} GB` : '') },
+    pct: (s) => (s.pc ? (s.pc.ramUsedGb / s.pc.ramTotalGb) * 100 : null), sub: (s) => (s.pc && s.pc.ramTotalGb ? `${r1(s.pc.ramUsedGb)} / ${Math.round(s.pc.ramTotalGb)} ${tp('GB')}` : '') },
   vram: { label: 'VRAM', name: 'Video memory', color: '--gpu', unit: '%', max: () => 100,
     val: (s) => { const m = gpuMem(gpuOf(s)); return m ? (m.used / m.total) * 100 : null; },
     sub: (s) => { const m = gpuMem(gpuOf(s)); return m ? memText(m) : tp('No GPU data'); } },
@@ -596,12 +640,14 @@ export const METRICS = {
     sub: (s) => { const g = gpuOf(s); return g?.memClock != null ? tpv('Memory {n} MHz', { n: Math.round(g.memClock) }) : g?.clock == null ? tp('No clock data') : ''; } },
   cputemp: { label: 'CPU TEMP', name: 'CPU temperature', color: '#fb7185', unit: '°C', max: () => 100, hot: [75, 85], val: (s) => s.pc?.cpuTemp,
     sub: (s) => (s.pc?.cpuTemp == null ? tp('needs LibreHardwareMonitor') : shortCpu(s.pc?.cpuName)) },
+  cpupower: { label: 'CPU POWER', name: 'CPU power', color: '#a3e635', unit: 'W', max: () => Math.max(...hist.cpupower, 50), val: (s) => s.pc?.cpuPower,
+    sub: (s) => (s.pc?.cpuPower != null ? shortCpu(s.pc?.cpuName) : s.os === 'windows' ? tp('needs LibreHardwareMonitor') : tp('No power data')) },
 };
 
 export function metricText(m, s) {
   const v = m.val(s);
   if (m.rate) return fmtRate(v);
-  const unit = (typeof m.unit === 'function' ? m.unit(s) : m.unit) || '';
+  const unit = tp((typeof m.unit === 'function' ? m.unit(s) : m.unit) || '');
   if (v == null) return ['—', unit];
   return [m.fmt ? m.fmt(v) : String(Math.round(v)), unit];
 }
@@ -677,11 +723,17 @@ export function wxLines() {
   const desc = wxText(c.weather_code);
   const hi = d.temperature_2m_max ? wxDeg(d.temperature_2m_max[0]) : null;
   const lo = d.temperature_2m_min ? wxDeg(d.temperature_2m_min[0]) : null;
+  // Isolate signed temperatures and arrows without changing the Arabic description.
+  const rtl = document.documentElement.dir === 'rtl';
+  const isolate = (value) => rtl ? '\u2066' + value + '\u2069' : value;
+  const apparent = wxDeg(c.apparent_temperature);
+  const feelsLike = t('wx.feelsLike', { deg: apparent })
+    .replace(`\u2068${apparent}\u2069°`, () => isolate(apparent + '°'));
   return {
     icon: wxIcon(c.weather_code, c.is_day),
     temp: wxDeg(c.temperature_2m) + '°',
     desc: `${desc} · ${cfg.weather?.city || ''}`,
-    range: (hi != null ? `↑${hi}° ↓${lo}° · ` : '') + t('wx.feelsLike', { deg: wxDeg(c.apparent_temperature) }),
+    range: (hi != null ? isolate(`↑${hi}° ↓${lo}°`) + ' · ' : '') + feelsLike,
   };
 }
 
@@ -713,6 +765,8 @@ export function phoneBattery() {
 }
 
 export function quotaProviders() { return D.quotas?.providers || []; }
+// An extra account's card is `claude@<label>`: a widget set to `claude` shows every Claude account, or it names one.
+export const quotaWanted = (want, id) => want.includes(id) || want.includes(String(id).split('@')[0]);
 
 export function renderStatus(el, o = {}) {
   const via = transport();
@@ -723,7 +777,7 @@ export function renderStatus(el, o = {}) {
   for (const p of quotaProviders()) {
     const l = p.limits?.[0];
     // Clocks saved before the Providers option have none: show every provider like before.
-    if (!l || (o.providers != null && !o.providers.includes(p.id))) continue;
+    if (!l || (o.providers != null && !quotaWanted(o.providers, p.id))) continue;
     const s = h('span', 'qm', h('span', 'sep', '·'), p.name + ' ', h('b', null, Math.round(l.percent) + '%'));
     if (l.percent >= 95) s.style.color = '#f87171'; else if (l.percent >= 80) s.style.color = '#fbbf24';
     kids.push(s);
@@ -750,6 +804,9 @@ export async function runShortcut(btn, id, hold = false) {
   setTimeout(() => btn.classList.remove('ok', 'err'), 900);
 }
 
+const ICON_SIZES = new Set(['m', 'l', 'max']); // the agent only sends these; anything else is ignored, never a bad class token
+const ICON_SIZE_CLASSES = [...ICON_SIZES].map((z) => 'k-isz-' + z);
+
 /** A shortcut key. The Big button's options: with `cover`, a picture the user uploaded becomes the key's background
  *  instead of the centred icon; without `label`, the key shows no name (screen readers still get it). */
 export function keyButton(s, { cover = false, label = true } = {}) {
@@ -760,14 +817,16 @@ export function keyButton(s, { cover = false, label = true } = {}) {
   const name = String(s.label || '').trim();
   if (!label || !name) b.setAttribute('aria-label', name || s.id);
   b.style.setProperty('--k', s.color || '#6b7280');
+  if (ICON_SIZES.has(s.iconSize)) b.classList.add('k-isz-' + s.iconSize);
   b.dataset.id = s.id;
   b._cover = cover;
   if (s.hold) holdToRun(b, s.id);
   else b.addEventListener('click', () => runShortcut(b, s.id));
   // Only an upload fills the key: a program's own icon is 32 px on Windows, 64 px on macOS, and on Linux whatever logo
   // the icon theme has, none of them a picture the user chose for the button. The agent says which is which, since the
-  // picture's size cannot tell (an SVG reports a default size, often 24 px from an icon set).
-  if (s.iconRev != null) applyShortcutIcon(b, icon, s.id, cover && s.iconUpload === true);
+  // picture's size cannot tell (an SVG reports a default size, often 24 px from an icon set). The same goes for the
+  // icon size: only an upload is sized by it, a program's own icon keeps its size.
+  if (s.iconRev != null) applyShortcutIcon(b, icon, s.id, cover && s.iconUpload === true, s.iconUpload === true);
   return b;
 }
 
@@ -795,17 +854,20 @@ function holdToRun(b, id) {
 export function setKeyFace(b, s, cover = false) {
   b.dataset.face = s.id === b.dataset.id ? '' : s.id;
   b.querySelectorAll('.k-bg, .k-shade').forEach((n) => n.remove());
-  b.classList.remove('k-cover');
+  b.classList.remove('k-cover', ...ICON_SIZE_CLASSES);
+  if (ICON_SIZES.has(s.iconSize)) b.classList.add('k-isz-' + s.iconSize);
   const icon = b.querySelector('.k-icon');
-  icon.classList.remove('k-icon-img');
+  icon.classList.remove('k-icon-img', 'k-icon-up');
   icon.replaceChildren(s.icon ? rich(s.icon) : '•');
   b.querySelector('.k-label').textContent = s.label;
   // a key that had no visible name is named by its id; the name follows the face
   if (b.hasAttribute('aria-label')) b.setAttribute('aria-label', String(s.label || '').trim() || s.id);
-  if (s.iconRev != null) applyShortcutIcon(b, icon, s.id, cover && s.iconUpload === true);
+  if (s.iconRev != null) applyShortcutIcon(b, icon, s.id, cover && s.iconUpload === true, s.iconUpload === true);
 }
 
-function applyShortcutIcon(b, icon, id, cover) {
+/** `cover`: ask for the upload only and fill the key with it. `upload`: the picture the agent serves is an upload, so the
+ *  key's icon size applies to it (k-icon-up); a program's own icon is not resized. */
+function applyShortcutIcon(b, icon, id, cover, upload) {
   // a picture that arrives after the key changed face (a cycle key) is not the face any more: it is dropped
   const current = () => (b.dataset.face || b.dataset.id) === id;
   const url = `${API}/shortcuts/icon?id=${encodeURIComponent(id)}`;
@@ -820,11 +882,11 @@ function applyShortcutIcon(b, icon, id, cover) {
       b.prepend(img, h('span', 'k-shade'));
       b.classList.add('k-cover');
     };
-    img.onerror = () => applyShortcutIcon(b, icon, id, false);
+    img.onerror = () => applyShortcutIcon(b, icon, id, false, false); // the upload is gone: what is served now is not one
     img.src = url + '&upload=true'; // "true", not "1": the agent binds it as a bool and answers 400 to "1"
     return;
   }
-  img.onload = () => { if (!current()) return; icon.replaceChildren(img); icon.classList.add('k-icon-img'); };
+  img.onload = () => { if (!current()) return; icon.replaceChildren(img); icon.classList.add('k-icon-img'); icon.classList.toggle('k-icon-up', upload === true); };
   img.src = url;
 }
 
@@ -838,6 +900,16 @@ export function setVolDragging(control, dragging) {
 // the agent says how old the position was when it sent it (it was read up to a second before the 1 s tick sent it);
 // counting from "that long before it arrived" keeps the bar from running behind. Capped: a bogus age must not jump it.
 const mediaSampleAt = (m) => performance.now() - Math.min(Math.max(Number(m?.ageMs) || 0, 0), 5000);
+export const mediaRate = (m) => {
+  const r = Number(m?.playbackRate);
+  return Number.isFinite(r) && r > 0 ? r : 1;
+};
+export const mediaPosMs = (m, now = performance.now()) => {
+  if (!m) return 0;
+  const elapsed = m.playing ? Math.max(0, now - m.at) * mediaRate(m) : 0;
+  const pos = (Number(m.posMs) || 0) + elapsed;
+  return m.durMs > 0 ? Math.min(m.durMs, Math.max(0, pos)) : Math.max(0, pos);
+};
 // The next sample of the same track is not trusted blindly: the bar is counted on the phone between samples, and each
 // sample is a second old and read at a slightly different moment, so taking it as is makes the time stutter. A bar
 // within 0.3 s of the sample stays as it is, up to 1.5 s off it moves 30 % of the way, and anything bigger (a seek, a
@@ -849,21 +921,113 @@ export function mediaFrom(prev, m) {
   // just after the user moved the position bar the agent's samples still hold the old position for a moment: keep the
   // chosen one until a sample agrees with it (or the hold runs out)
   if (prev?.hold > now && prev.title === m.title && prev.app === m.app) {
-    const target = prev.posMs + (prev.playing ? now - prev.at : 0);
-    if (Math.abs(next.posMs + (m.playing ? now - next.at : 0) - target) >= 1500) return { ...next, posMs: prev.posMs, at: prev.at, hold: prev.hold };
+    const target = mediaPosMs(prev, now);
+    if (Math.abs(mediaPosMs(next, now) - target) >= 1500) {
+      return mediaRate(prev) === mediaRate(next)
+        ? { ...next, posMs: prev.posMs, at: prev.at, hold: prev.hold }
+        : { ...next, posMs: target, at: now, hold: prev.hold };
+    }
   }
-  if (!prev || !prev.playing || !m.playing || prev.title !== m.title || prev.app !== m.app || prev.durMs !== m.durMs) return next;
-  const shown = prev.posMs + (now - prev.at);
-  const off = next.posMs + (now - next.at) - shown;
+  if (!prev || !prev.playing || !m.playing || prev.title !== m.title || prev.app !== m.app || prev.durMs !== m.durMs || mediaRate(prev) !== mediaRate(next)) return next;
+  const shown = mediaPosMs(prev, now);
+  const off = mediaPosMs(next, now) - shown;
   if (Math.abs(off) < 300) return { ...next, posMs: prev.posMs, at: prev.at };
   if (Math.abs(off) < 1500) return { ...next, posMs: shown + off * 0.3, at: now };
   return next;
 }
-export const setMediaState = (m) => {
-  if (D.state) D.state.media = m || null;
-  media = mediaFrom(media, m);
+// The phone's own music (Android's media sessions, read by the app; it never leaves the phone). It is shown only while the
+// computer plays nothing, so a song on the computer always wins; its buttons then go to the phone, not the agent.
+// D.state.media stays the agent's own reading: the whole of D.state is handed to Custom HTML widgets, and the phone's song must
+// not reach their scripts. The widgets read the merged song from `media` (below), which is only for the panel's own code.
+let agentMedia = null;   // what the agent said last
+let agentAt = 0;         // when that was true (its age counted in), so it can be counted on without taking it for a new reading
+let phoneMedia = null;   // what the phone plays (the app's media object, with phone: true), or null
+let phoneAt = 0;         // when it arrived: its position was true then, and is counted on from there
+let phoneJson = 'null';  // the last message from the phone, to tell a repeat from a change
+let phoneMediaRead = false;
+// the phone's song with its position counted up to now, so every state frame (each second) restates it without a jump back
+const phoneNow = (both) => ({ ...phoneMedia, posMs: mediaPosMs({ ...phoneMedia, at: phoneAt }), ageMs: 0, both });
+// the agent's last song counted up to now: used when the phone changed and the agent has said nothing new (not a fresh sample)
+const agentNow = (both) => (agentMedia ? { ...agentMedia, posMs: mediaPosMs({ ...agentMedia, at: agentAt }), ageMs: 0, both } : null);
+// While the phone has a song the widget offers a switch (computer | phone), so one can look at, or go back to, the computer even
+// when it plays nothing. Without a choice the one that plays is shown (the computer's first when both play); when neither plays
+// the one that was shown stays shown (Play then starts that one). A tap picks one and keeps it until the phone has no song
+// left, and then the next time it has one the widget starts by itself again.
+let mediaChoice = null; // 'phone' | 'mac' | null
+let lastShown = 'mac';  // which side the widget showed last
+export let swapOn = false;    // the switch is shown
+export let swapPhone = false; // and it points at the phone's side
+export const setMediaChoice = (choice) => { mediaChoice = choice === 'phone' ? 'phone' : 'mac'; setMediaState(agentMedia, false); };
+/** The song the widgets show. [fresh]: [fromAgentState] is a new reading of the agent's; else the last one is counted on. */
+export function effectiveMedia(fromAgentState, fresh = true) {
+  if (fresh) {
+    agentMedia = fromAgentState || null;
+    if (agentMedia) agentAt = mediaSampleAt(agentMedia);
+  }
+  if (!phoneMediaRead) {
+    phoneMediaRead = true;
+    try { const j = bridge?.phoneMedia?.(); if (j && j !== 'null') { phoneMedia = JSON.parse(j); phoneAt = performance.now(); phoneJson = j; } } catch (_) {}
+  }
+  if (!phoneMedia) mediaChoice = null;
+  const both = !!(phoneMedia && agentMedia);
+  const computers = () => (fresh ? (both ? { ...agentMedia, both: true } : agentMedia) : agentNow(both));
+  let out;
+  if (phoneMedia && mediaChoice) out = mediaChoice === 'phone' ? phoneNow(true) : computers();
+  else if (agentMedia?.playing) out = computers();
+  else if (phoneMedia?.playing) out = phoneNow(both);
+  else if (both) out = lastShown === 'phone' ? phoneNow(true) : computers(); // neither plays: what was shown stays
+  else out = phoneMedia ? phoneNow(false) : computers();
+  if (out) lastShown = out.phone ? 'phone' : 'mac';
+  swapOn = !!phoneMedia;
+  swapPhone = !!out?.phone;
+  return out;
+}
+export const phoneMediaControl = (action, ms) => { try { return !!bridge?.phoneMediaControl?.(action, ms || 0); } catch (_) { return false; } };
+// the volume row follows the song shown: the phone's own media volume for the phone's song, the computer's otherwise
+// a bridge call every second the widget redraws would be wasteful: the reading is kept for a few seconds, and dropped when the panel changes it
+let audioAt = -1e9, audioNow = null;
+export const phoneAudio = () => {
+  const now = performance.now();
+  if (now - audioAt < 3000 && now >= audioAt) return audioNow;
+  try { const j = bridge?.phoneAudio?.(); audioNow = j && j !== 'null' ? JSON.parse(j) : null; } catch (_) { audioNow = null; }
+  audioAt = now;
+  return audioNow;
+};
+export const phoneVolume = (percent) => { audioAt = -1e9; try { return !!bridge?.phoneVolume?.(percent); } catch (_) { return false; } };
+export const phoneMute = () => { audioAt = -1e9; try { return !!bridge?.phoneMute?.(); } catch (_) { return false; } };
+export const phoneMediaArt = (id) => { try { return bridge?.phoneMediaArt?.(id) || ''; } catch (_) { return ''; } };
+window.onPhoneMedia = (json) => {
+  const next = json && json !== 'null' ? json : 'null';
+  if (phoneMediaRead && next === phoneJson) return; // the same message again (null after null, with the switch off): nothing to do
+  phoneJson = next;
+  try { phoneMedia = next === 'null' ? null : JSON.parse(next); } catch (_) { phoneMedia = null; }
+  phoneAt = performance.now();
+  phoneMediaRead = true;
+  const wasPhone = !!media?.phone, wasSwap = swapOn;
+  const shown = effectiveMedia(agentMedia, false);
+  // the computer's song stays what is shown and nothing about the switch changed: no redraw, and no old agent sample taken for a new one
+  if (!shown?.phone && !wasPhone && swapOn === wasSwap) return;
+  media = mediaFrom(media, shown);
   emit('state');
 };
+export const setMediaState = (m, fresh = true) => {
+  if (fresh && D.state) D.state.media = m || null; // the agent's own reading, never the phone's
+  media = mediaFrom(media, effectiveMedia(m, fresh));
+  emit('state');
+};
+// The state frame carries the agent's last media reading; it reads the players every second only while someone asks.
+// A Now playing or Synced lyrics widget on the page on screen asks every few seconds (#523: on macOS each reading
+// starts a process, so a panel that is merely on screen must not keep it reading).
+let mediaAsked = 0;
+async function watchMedia(now = false) {
+  if (!online || idle() || nightOn || !pageOf('media')) return;
+  if (!now && Date.now() - mediaAsked < 4000) return;
+  mediaAsked = Date.now();
+  try {
+    const res = await api('/media');
+    if (res && typeof res === 'object' && 'media' in res) setMediaState(res.media);
+  } catch (_) {}
+}
 // The background glow: the accent colour (Settings › Display), or the album art's colour while music plays.
 export let DEFAULT_AMBIENT = '45, 212, 191';
 export let artTint = true;
@@ -894,6 +1058,7 @@ export const setAmbient = (rgb) => document.documentElement.style.setProperty('-
 
 /** The empty media card. A function, not a constant: its texts are translated when the widget is built. */
 export const mediaHtml = () => `
+  <button class="m-swap" hidden aria-label="${t('w.mediaSwitch')}" title="${t('w.mediaSwitch')}" data-i18n-aria="w.mediaSwitch" data-i18n-title="w.mediaSwitch"><svg class="sw-pc" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v11H3zm5 13h8v2H8z"/></svg><svg class="sw-ph" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm4 17a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/></svg></button>
   <div class="m-top">
     <div class="art-wrap"><img class="art" alt=""><div class="art-ph">♪</div></div>
     <div class="m-text"><div class="m-app"><span class="m-source-icon" aria-hidden="true"></span><span class="m-app-name">Media</span></div><div class="m-title">${t('w.nothingPlaying')}</div><div class="m-artist">${t('w.startOnPc')}</div></div>
@@ -952,6 +1117,7 @@ export let workLoaded = false;
 
 /** Vibrates and shows a toast when a session finishes or starts waiting for input; the finish toast can be turned off. */
 export function notifyTransitions(sessions) {
+  let finished = 0;
   for (const s of sessions) {
     const before = prevStatus.get(s.id);
     if (workLoaded && before && before !== s.status) {
@@ -961,10 +1127,12 @@ export function notifyTransitions(sessions) {
       } else if (s.status === 'idle' && (before === 'busy' || before === 'shell')) {
         buzz('0,70,110,70');
         if (cfg.display?.finishToast !== false) toast(t('panel.sessionFinished', { name: s.name }), 'ok');
+        finished++;
       }
     }
     prevStatus.set(s.id, s.status);
   }
+  if (finished > 0 && cfg.display?.finishSound) chime(cfg.display.finishSoundVolume ?? 70, true);
   workLoaded = true;
 }
 
@@ -1009,14 +1177,26 @@ export function fillIcon(box, g) {
     img.onload = () => {
       if (ICON_CACHE.size >= MAX_ICON_CACHE) {
         const oldest = ICON_CACHE.keys().next().value;
-        if (oldest !== undefined) ICON_CACHE.delete(oldest);
+        if (oldest !== undefined) {
+          URL.revokeObjectURL(ICON_CACHE.get(oldest).src);
+          ICON_CACHE.delete(oldest);
+        }
       }
+      // a second load of the same name may finish first: drop the entry it replaces with its blob URL
+      const replaced = ICON_CACHE.get(g.name);
+      if (replaced && replaced !== img) URL.revokeObjectURL(replaced.src);
       ICON_CACHE.set(g.name, img);
       box.textContent = '';
       box.style.background = 'transparent';
       box.appendChild(img);
     };
-    img.src = `${API}/procs/icon?name=${encodeURIComponent(g.name)}`;
+    img.onerror = () => { if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src); };
+    // fetched with the panel header rather than as a plain <img>: otherwise any page in a widget's frame could load
+    // the icon and tell from load or error whether a program runs on the computer
+    fetch(`${API}/procs/icon?name=${encodeURIComponent(g.name)}`, { headers: PANEL_HEADERS })
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((blob) => { if (blob) img.src = URL.createObjectURL(blob); })
+      .catch(() => {});
   }
 }
 
@@ -1223,6 +1403,8 @@ export function renderApproval() {
     approvalShown = a.id;
     lastTouch = Date.now();
     undim();
+    // before the night screen wakes: chime() keeps quiet at night, like the finish sound
+    if (cfg.display?.approvalSound) chime(cfg.display.finishSoundVolume ?? 70);
     if (nightOn) { wakeUntil = Date.now() + 60_000; setNight(false); }
     buzz('0,120,80,120,80,240');
     // A prompt whose answer is still in flight comes back locked: it can be shown again while its own post runs.
@@ -1394,16 +1576,21 @@ export function handleEvent(e) {
   if (PREVIEW && (e.kind === 'goto' || e.kind === 'back' || e.kind === 'reload')) return; // the editor picks the page
   if (e.kind === 'approval' || e.kind === 'approval-done') loadApprovals();
   else if (e.kind === 'notify' && e.data) handleNotify(e.data);
-  else if (e.kind === 'goto' && e.data) requestPage(e.data);
+  else if (e.kind === 'goto' && e.data) {
+    // "next" and "prev" are relative: the panel alone knows which page it shows, so they step without a queue (#616).
+    // They carry e.data.step, not e.data.page: a page id called "next" or "prev" must keep working through the queue.
+    if (e.data.step === 'next' || e.data.step === 'prev') stepPage(e.data.step);
+    else requestPage(e.data);
+  }
   else if (e.kind === 'back' && e.data) requestBack(e.data.rule);
   else if (e.kind === 'refresh') { loadConfig(); loadQuotas(); loadWork(); loadPush(); loadWeather(true); loadCalendar(); }
   else if (e.kind === 'reload') location.reload();
 }
 
-export const WIDGET_ICONS = { camera: '📹', dictate: '🎙️', spectrum: '📶', 'app-console': '🎛️', discord: '💬', steam: '👥', 'steam-activity': '🔔', rules: '⚡', chargecare: '🔋', nextup: '⏭️', moon: '🌙', wordclock: '🔤', clock: '🕒', weather: '⛅', forecast: '🌦️', media: '🎵', lyrics: '🎤', stat: '📈', gauge: '⏲️', chart: '📊', meters: '💾', gpu: '🎮', quotas: '✳️', sessions: '🤖',
-  github: '🐙', processes: '⚙️', shortcuts: '🎛️', button: '🔘', worldclock: '🌍', calendar: '📅', pomodoro: '🍅', countdown: '⏳', note: '📝', command: '💻',
+export const WIDGET_ICONS = { camera: '📹', dictate: '🎙️', spectrum: '📶', 'app-console': '🎛️', discord: '💬', 'discord-bar': '🔊', steam: '👥', 'steam-activity': '🔔', rules: '⚡', chargecare: '🔋', nextup: '⏭️', moon: '🌙', wordclock: '🔤', clock: '🕒', weather: '⛅', forecast: '🌦️', media: '🎵', lyrics: '🎤', stat: '📈', gauge: '⏲️', chart: '📊', meters: '💾', gpu: '🎮', quotas: '✳️', sessions: '🤖',
+  github: '🐙', processes: '⚙️', shortcuts: '🎛️', button: '🔘', worldclock: '🌍', calendar: '📅', pomodoro: '🍅', focushistory: '📈', countdown: '⏳', note: '📝', command: '💻',
   push: '📡', inbox: '📬', label: '🔤', analog: '🕰️', progress: '📆', stopwatch: '⏱️', timer: '⏲️', counter: '🔢', breathe: '🫁', quote: '💬',
-  checklist: '✅', battery: '🔋', topprocs: '🔥', quotaring: '🎯', volume: '🔊', sun: '🌅', air: '🍃', hackernews: '📰', feeds: '🗞️', photos: '🖼️', exchange: '💱', crypto: '🪙', image: '🖼️', pcswitch: '🖥️', 'plex-queue': '🎛️' };
+  checklist: '✅', battery: '🔋', topprocs: '🔥', quotaring: '🎯', volume: '🔊', sun: '🌅', air: '🍃', hackernews: '📰', hadash: '🏡', feeds: '🗞️', photos: '🖼️', exchange: '💱', crypto: '🪙', image: '🖼️', pcswitch: '🖥️', pagebuttons: '🧭', 'plex-queue': '🎛️', 'plex-playlists': '🎶' };
 
 // ================================================================= pages
 export const pager = $('pager');
@@ -1415,10 +1602,11 @@ let lastHour12 = null;
 
 export const isPortrait = () => window.innerHeight > window.innerWidth * 1.05;
 
-// Portrait: the same widgets packed into a 6-column grid in reading order. Their sizes in cells stay the same
-// (portrait cells are about as square as landscape ones); wider widgets shrink to 6 columns and the rows grow to fit.
-export function portraitLayout(widgets) {
-  const cols = 6, occ = [], pos = new Map();
+// Portrait: the same widgets packed in reading order. Their sizes in cells stay the same (portrait cells are about
+// as square as landscape ones). A phone uses 6 columns, so a widget wider than that shrinks; a tablet uses 12,
+// so more widgets sit next to each other. The rows grow to fit.
+export function portraitLayout(widgets, cols = 6) {
+  const occ = [], pos = new Map();
   const free = (x, y, w, h) => { for (let r = y; r < y + h; r++) for (let c = x; c < x + w; c++) if (occ[r]?.[c]) return false; return true; };
   const take = (x, y, w, h) => { for (let r = y; r < y + h; r++) { occ[r] = occ[r] || []; for (let c = x; c < x + w; c++) occ[r][c] = true; } };
   for (const w of [...widgets].sort((a, b) => a.y - b.y || a.x - b.x)) {
@@ -1428,13 +1616,21 @@ export function portraitLayout(widgets) {
   return { pos, rows: Math.max(12, occ.length) };
 }
 
+// Settings › Display › More rows on a tablet. Off by default, so an arranged tablet keeps its 12 × 6 pages.
+const gridOptions = () => ({ tabletRows: cfg.display?.tabletRows === true });
+
 export function buildLayout() {
   const enabled = (cfg.pages || []).filter((p) => p.enabled !== false && Array.isArray(p.widgets));
   const next = enabled.length ? enabled : FALLBACK_PAGES;
-  const portrait = isPortrait();
+  const viewport = gridForViewport(window.innerWidth, window.innerHeight, gridOptions());
+  const portrait = viewport.portrait;
+  const designed = designGrid(window.innerWidth, window.innerHeight, gridOptions());
+  document.documentElement.style.setProperty('--pb-cols', String(designed.cols));
+  document.documentElement.style.setProperty('--pb-rows', String(designed.rows));
   const h12 = hour12();
-  // the active language belongs in the key: the widgets render their texts once, when they are created
-  const key = JSON.stringify([next, cfg.shortcuts, cfg.display?.showSeconds, cfg.display?.hour12, h12, cfg.display?.appearance, portrait, I18n?.getLang()]);
+  // the active language belongs in the key: the widgets render their texts once, when they are created; so does the
+  // Home Assistant address, which the dashboard widget reads once
+  const key = JSON.stringify([next, cfg.shortcuts, cfg.homeAssistant, cfg.display?.showSeconds, cfg.display?.hour12, h12, cfg.display?.appearance, viewport.cols, viewport.rows, designed.cols, designed.rows, portrait, I18n?.getLang()]);
   if (key === layoutKey) return;
   layoutKey = key;
   lastHour12 = h12;
@@ -1444,26 +1640,50 @@ export function buildLayout() {
   mounted = [];
   closeSheet();
   pager.replaceChildren();
+  // the old layout's backgrounds are gone: release their pictures and stop their requests
+  for (const bg of photoBg.values()) {
+    for (const u of bg.urls) URL.revokeObjectURL(u);
+    bg.inflight?.abort();
+  }
+  photoBg.clear();
   pages.forEach((p, pi) => {
     const grid = h('div', 'grid');
     const pageAppearance = PhoneBoxAppearance.resolve(cfg.display?.appearance, p.appearance);
-    const pl = portrait ? portraitLayout(p.widgets) : null;
-    if (pl) { grid.style.gridTemplateColumns = 'repeat(6, minmax(0, 1fr))'; grid.style.gridTemplateRows = `repeat(${pl.rows}, minmax(0, 1fr))`; }
+    // Upright, pack only the widgets this screen's landscape grid shows, so a phone leaves out tablet-only rows
+    // while a tablet held upright keeps them.
+    const pl = portrait ? portraitLayout(widgetsOnGrid(p.widgets, designed.cols, designed.rows), viewport.cols) : null;
+    if (pl) { grid.style.gridTemplateColumns = `repeat(${viewport.cols}, minmax(0, 1fr))`; grid.style.gridTemplateRows = `repeat(${pl.rows}, minmax(0, 1fr))`; }
     for (const w of p.widgets) {
       const def = W[w.type];
       if (!def) continue;
+      // not upright: the grid the CSS draws (--pb-rows), which on a nearly square screen can differ from the viewport's
+      const at = pl ? pl.pos.get(w) : placeWidget(w, designed.cols, designed.rows);
+      if (!at) continue; // a widget on a tablet-only row stays off a phone
       const box = h('div', `w w-${w.type}${def.bare ? ' bare' : ' card'}`);
       const appearance = PhoneBoxAppearance.resolve(cfg.display?.appearance, p.appearance, w.appearance);
-      const at = pl?.pos.get(w) || w;
       box.style.gridArea = `${at.y + 1} / ${at.x + 1} / span ${at.h} / span ${at.w}`;
       grid.appendChild(box);
-      const ctx = { page: p, w, o: w.options || {}, box, appearance };
+      const ctx = { page: p, w, o: w.options || {}, box, appearance, at, reflow: () => reflowPage(pi) };
       let inst;
       try { inst = def.create(box, ctx) || {}; } catch (e) { box.replaceChildren(h('div', 'empty', `${w.type}: ${e.message}`)); inst = {}; }
       PhoneBoxAppearance.widget(box, appearance);
       mounted.push({ pi, def: inst.needs ? { ...def, needs: inst.needs, always: inst.always ?? def.always } : def, inst, ctx, dirty: true });
     }
     const sec = h('section', 'page', grid);
+    // a page's photo background (Settings › Pages): a dimmed picture from the Photo frame's folder behind the
+    // widgets; the layers crossfade like the Photo frame widget does
+    if (p.photoBg?.enabled) {
+      const dim = Math.max(0, Math.min(90, +p.photoBg.dim ?? 45));
+      const bg = h('div', 'page-bg');
+      const imgs = [h('img', 'page-bg-img'), h('img', 'page-bg-img')];
+      for (const im of imgs) { im.alt = ''; im.decoding = 'async'; }
+      const shade = h('div', 'page-bg-dim');
+      shade.style.setProperty('--pb-dim', String(dim / 100));
+      bg.append(...imgs, shade);
+      sec.prepend(bg);
+      // the tick drives the slideshow: fetch the list, then a new picture every minute on this page only
+      photoBg.set(p.id, { id: p.id, layer: imgs, front: 0, inflight: null, order: [], pos: 0, listAt: 0, nextAt: 0, every: 60_000, urls: new Set(), alive: true });
+    }
     PhoneBoxAppearance.page(sec, grid, pageAppearance);
     sec.dataset.id = p.id;
     pager.appendChild(sec);
@@ -1509,10 +1729,90 @@ export function setActive(all = false) {
   }
 }
 
+// ---------------------------------------------------------------- a page's photo background (Settings › Pages)
+// One dimmed picture from the Photo frame's folder behind a page's widgets. Like the Photo frame widget it keeps
+// its two layers crossfading and asks for the next picture on a timer; the only difference is that it is a layer of
+// the page itself, so the tick drives it directly instead of a widget emitter.
+const photoBg = new Map(); // page id -> { layer, front, inflight, nextAt, urls, alive }
+
+function bgVisible(id) {
+  // a neighbour page and the night screen keep ticking too: only the shown page may change its background
+  return !nightOn && pages[curPage]?.id === id;
+}
+
+async function bgNext(st) {
+  if (st.inflight || !st.order.length) return;
+  const id = st.order[st.pos];
+  st.pos = (st.pos + 1) % st.order.length;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 20_000);
+  // aborting doesn't always settle a body that stalled half-way, so the read itself has a deadline that rejects
+  let late;
+  const deadline = new Promise((_, fail) => { late = setTimeout(() => fail(new Error('timeout')), 20_000); });
+  deadline.catch(() => {});
+  st.inflight = ctl;
+  try {
+    const r = await Promise.race([fetch(`${API}/photos/${encodeURIComponent(id)}`, { cache: 'no-store', headers: PANEL_HEADERS, signal: ctl.signal }), deadline]);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const url = URL.createObjectURL(await Promise.race([r.blob(), deadline]));
+    if (!st.alive || ctl.signal.aborted) { URL.revokeObjectURL(url); return; }
+    st.urls.add(url);
+    const next = st.layer[1 - st.front], prev = st.layer[st.front];
+    // the request stays in flight until the image has decoded, so a slow photo is never overtaken
+    const ok = await new Promise((done) => {
+      next.onload = () => done(true);
+      next.onerror = () => done(false);
+      ctl.signal.addEventListener('abort', () => done(false));
+      next.src = url;
+    });
+    next.onload = next.onerror = null;
+    // hidden while it loaded (another page or the night screen): drop it rather than change a hidden page
+    if (!ok || !st.alive || ctl.signal.aborted || !bgVisible(st.id)) {
+      if (next.src === url) next.removeAttribute('src');
+      URL.revokeObjectURL(url); st.urls.delete(url);
+      if (!ok) st.nextAt = Date.now() + 5000;
+      return;
+    }
+    next.classList.add('on'); prev.classList.remove('on');
+    st.front = 1 - st.front;
+    const old = st.shown; st.shown = url;
+    // the old image is released once the crossfade is over
+    if (old) setTimeout(() => { if (st.urls.delete(old)) URL.revokeObjectURL(old); }, 1200);
+  } catch (_) {
+    st.nextAt = Date.now() + 5000; // a missing or slow photo: try the next one soon
+  } finally { clearTimeout(timer); clearTimeout(late); st.inflight = null; }
+}
+
+function updatePhotoBg() {
+  if (nightOn) return;
+  for (const [id, st] of photoBg) {
+    if (!st.alive || !bgVisible(id)) continue;
+    const now = Date.now();
+    if (!st.listAt || now - st.listAt > 10 * 60_000) st.listAt = now, st.order = [], st.pos = 0, bgLoadList(st);
+    if (st.order.length && now >= st.nextAt) { st.nextAt = now + st.every; bgNext(st); }
+  }
+}
+
+async function bgLoadList(st) {
+  st.listAt = Date.now();
+  try {
+    const r = await api('/photos', 'GET', 10_000);
+    if (!st.alive) return;
+    if (r.scanning) { st.listAt = Date.now() - 9 * 60_000; return; } // ask again in a minute
+    const list = Array.isArray(r.ids) ? r.ids : [];
+    st.order = list; st.pos = 0;
+    if (!list.length) st.listAt = Date.now() - 9 * 60_000; // nothing to show: ask again in a minute
+  } catch (_) {
+    st.listAt = Date.now() - 9 * 60_000; // offline: ask again in a minute
+  }
+}
+
 // ---------------------------------------------------------------- navigation: swipe, dots, overview, volume keys, agent events
 export let pagePaused = false;
 let pausedPageId = null;
 let pagePauseBtn = null;
+let pageAllBtn = null;
+let scrubFrom = null, scrubbed = false; // { x, id, at }: a press on the dots that may turn into a slide along them
 let pageOverlayTimer = 0;
 
 /** Builds an inline SVG element for the page pause toggle and center overlay. */
@@ -1584,7 +1884,7 @@ export function togglePagePaused() {
 export function buildDots() {
   const dots = $('dots');
   if (pages.length < 2) {
-    pagePauseBtn = null;
+    pagePauseBtn = pageAllBtn = null;
     dots.replaceChildren();
     dots.classList.remove('paused');
     dots.hidden = true;
@@ -1596,25 +1896,77 @@ export function buildDots() {
   pagePauseBtn.type = 'button';
   pagePauseBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    if (scrubbed) { scrubbed = false; return; } // the touch that opened the page bar
     togglePagePaused();
   });
-  dots.replaceChildren(...pages.map(() => h('i')), pagePauseBtn);
+  // each dot is a finger-sized button that goes to its page; the dot itself stays the small <i> inside
+  const dot = (p, i) => {
+    const b = h('button', 'dot', h('i'), p.icon ? h('span', 'dot-ic', rich(p.icon)) : null, h('span', 'dot-nm', p.title || `${i + 1}`));
+    b.type = 'button';
+    b.dataset.i = i;
+    b.setAttribute('aria-label', `${i + 1} · ${`${p.icon || ''} ${p.title || ''}`.trim()}`);
+    return b;
+  };
+  pageAllBtn = h('button', 'page-all', makeSvg('i-all', 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'));
+  pageAllBtn.type = 'button';
+  pageAllBtn.title = t('panel.allPages');
+  pageAllBtn.setAttribute('aria-label', t('panel.allPages'));
+  pageAllBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (scrubbed) { scrubbed = false; return; } // the touch that opened the page bar
+    openOverview();
+  });
+  dots.style.setProperty('--n', pages.length);
+  dots.replaceChildren(...pages.map(dot), pageAllBtn, pagePauseBtn);
   dots.hidden = false;
   syncPagePauseUi();
+  fitPageBar();
+}
+
+/** A widget that hides itself (box.hidden, like the Discord bar outside a voice channel) gives its cells away: the
+ *  widgets right below it whose columns lie within its own grow up into its rows; with none below, the ones right above
+ *  grow down. Shown again, all go back to their own cells (every call starts again from each widget's own place). */
+export function reflowPage(pi) {
+  const items = mounted.filter((m) => m.pi === pi);
+  const area = new Map(items.map((m) => [m, { ...m.ctx.at }]));
+  const shown = items.filter((m) => !m.ctx.box.hidden);
+  // A neighbour that grows can reach the next hidden widget (two hidden bars stacked above a widget), so the hidden
+  // widgets are tried again until none is left or none moves.
+  let left = items.filter((m) => m.ctx.box.hidden);
+  for (let moved = true; moved && left.length;) {
+    moved = false;
+    left = left.filter((gone) => {
+      const g = gone.ctx.at;
+      const inside = (a) => a.x >= g.x && a.x + a.w <= g.x + g.w;
+      const below = shown.filter((m) => inside(area.get(m)) && area.get(m).y === g.y + g.h);
+      const above = shown.filter((m) => inside(area.get(m)) && area.get(m).y + area.get(m).h === g.y);
+      for (const m of below.length ? below : above) {
+        const a = area.get(m);
+        if (below.length) a.y = g.y;
+        a.h += g.h;
+      }
+      if (below.length || above.length) { moved = true; return false; }
+      return true;
+    });
+  }
+  for (const m of items) { const a = area.get(m); m.ctx.box.style.gridArea = `${a.y + 1} / ${a.x + 1} / span ${a.h} / span ${a.w}`; }
 }
 
 export function updateDots() {
   $('dots').querySelectorAll('i').forEach((d, i) => d.classList.toggle('on', i === curPage));
+  $('dots').querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('on', i === curPage));
 }
 
 export let snapTimer = 0;
+/** The width of one page: the pager's, which a docked side page bar makes narrower than the window. */
+const pageWidth = () => pager.clientWidth || window.innerWidth;
 export function goPage(i, instant = false) {
   i = Math.max(0, Math.min(pages.length - 1, i));
   if (curPage >= 0 && i !== curPage && pagePaused) setPagePaused(false, { feedback: false, resume: false });
-  if (!instant) { pager.scrollTo({ left: i * window.innerWidth, behavior: 'smooth' }); return; }
+  if (!instant) { pager.scrollTo({ left: i * pageWidth(), behavior: 'smooth' }); return; }
   // scroll-snap-stop: always would stop a programmatic jump at the next page, so snapping is paused for the jump.
   pager.style.scrollSnapType = 'none';
-  pager.scrollLeft = i * window.innerWidth;
+  pager.scrollLeft = i * pageWidth();
   onScroll();
   clearTimeout(snapTimer);
   snapTimer = setTimeout(() => (pager.style.scrollSnapType = ''), 120);
@@ -1626,6 +1978,14 @@ export function gotoPageRef(ref) {
   lastTouch = Date.now();
   goPage(n, Math.abs(n - curPage) > 1);
   return n;
+}
+
+/** The next or previous page from the computer (/api/goto/next, /api/goto/prev): the panel alone knows which page it
+ *  shows, so the request carries no position of its own (#616). Like a swipe or an arrow key: it does not queue. */
+export function stepPage(dir) {
+  if (PREVIEW || pages.length < 2) return;
+  lastTouch = Date.now();
+  goPage(curPage + (dir === 'prev' ? -1 : 1), true);
 }
 
 let procsSort = 'cpu';
@@ -1658,7 +2018,8 @@ export const resolvePage = (ref) => {
   const n = typeof ref === 'number' ? ref - 1 : /^\d+$/.test(String(ref)) ? +ref - 1 : pages.findIndex((p) => p.id === ref || p.title.toLowerCase() === String(ref).toLowerCase());
   return n >= 0 && n < pages.length ? n : -1;
 };
-export const homeIndex = () => { const id = cfg.display?.homePage; const i = id ? pages.findIndex((p) => p.id === id) : -1; return i >= 0 ? i : 0; };
+// this device's own home page (Settings › Phones) comes before the global one
+export const homeIndex = () => { const id = cfg.homePage || cfg.display?.homePage; const i = id ? pages.findIndex((p) => p.id === id) : -1; return i >= 0 ? i : 0; };
 
 // ================================================================= calm page switching
 // Rules, webhooks and the idle return ask for a page instead of jumping to it. A request waits while you are using the
@@ -1871,18 +2232,23 @@ export function renderRulesBtn() {
 }
 
 export let titleTimer = 0;
-export function flashTitle() {
-  const p = pages[curPage];
-  if (!p || pages.length < 2) return;
-  const t = $('ptitle');
-  t.replaceChildren(rich(`${p.icon || ''} ${p.title}`.trim()));
-  t.classList.add('on');
+/** Shows page i's number, icon and title at the top: until hidden (hold) or for 900 ms. -1 hides it. */
+function showPageName(i, hold = false) {
+  const el = $('ptitle');
   clearTimeout(titleTimer);
-  titleTimer = setTimeout(() => t.classList.remove('on'), 900);
+  const p = pages[i];
+  if (!p || pages.length < 2) { el.classList.remove('on'); return; }
+  el.replaceChildren(rich(`${p.icon || ''} ${p.title}`.trim()));
+  el.classList.add('on');
+  if (!hold) titleTimer = setTimeout(() => el.classList.remove('on'), 900);
+}
+export function flashTitle() {
+  if (scrubFrom?.at != null) return; // the slide along the dots names the page under the finger
+  showPageName(curPage);
 }
 
 export function onScroll() {
-  const p = Math.round(pager.scrollLeft / window.innerWidth);
+  const p = Math.round(pager.scrollLeft / pageWidth());
   if (p === curPage) return;
   const prev = curPage;
   curPage = p;
@@ -1892,6 +2258,7 @@ export function onScroll() {
   setActive();
   if (sheet) closeSheet();
   if (pageOf('procs')) loadProcs();
+  watchMedia(true);
 }
 pager.addEventListener('scroll', onScroll, { passive: true });
 
@@ -1899,17 +2266,28 @@ export function openOverview() {
   haptic();
   const ov = $('overview');
   const tile = (p, i) => {
-    const map = h('div', 'ov-map', p.widgets.map((w) => {
+    const g = designGrid(window.innerWidth, window.innerHeight, gridOptions());
+    const map = h('div', 'ov-map', p.widgets.flatMap((w) => {
+      const at = placeWidget(w, g.cols, g.rows);
+      if (!at) return [];
       const b = h('span', null, emo(WIDGET_ICONS[w.type] || '◻'));
-      b.style.gridArea = `${w.y + 1} / ${w.x + 1} / span ${w.h} / span ${w.w}`;
-      return b;
+      b.style.gridArea = `${at.y + 1} / ${at.x + 1} / span ${at.h} / span ${at.w}`;
+      return [b];
     }));
+    // Tracks follow the same grid as the icons, even when the page layout was not rebuilt after a resize.
+    map.style.gridTemplateColumns = `repeat(${g.cols}, 1fr)`;
+    map.style.gridTemplateRows = `repeat(${g.rows}, 1fr)`;
     const t = h('button', 'ov-tile' + (i === curPage ? ' on' : ''), map, h('div', 'ov-name', h('b', null, `${i + 1}`), rich(` ${p.icon || ''} ${p.title}`)));
     t.addEventListener('click', (e) => { e.stopPropagation(); haptic(); closeOverview(); goPage(i, true); });
     return t;
   };
   $('ovGrid').replaceChildren(...pages.map(tile));
   renderRulesBtn();
+  // the phone's own Phone bridge screen (clipboard sharing with a Mac): only inside the Android app, and only when the agent
+  // says it has a bridge (macOS). A Windows or Linux agent, or one from before the bridge, sends no such flag: no button.
+  const ob = $('ovBridge');
+  ob.hidden = PREVIEW || !bridge?.openBridge || cfg.bridge?.supported !== true;
+  ob.replaceChildren(icon('smartphone', 'm'), t('s.bridge.title'));
   // several paired computers: switch between them here (a USB cable always wins)
   const pcs = pairedPcs();
   $('ovPcs').replaceChildren(...(pcs.length > 1 ? pcs.map((pc) => {
@@ -1935,8 +2313,79 @@ export function switchPc(pc) {
 export function closeOverview() { $('overview').hidden = true; }
 $('overview').addEventListener('click', closeOverview);
 $('ovRules').addEventListener('click', (e) => { e.stopPropagation(); toggleRulesPause(); });
+$('ovBridge').addEventListener('click', (e) => { e.stopPropagation(); haptic(); closeOverview(); bridge?.openBridge?.(); });
 
 let dotsHoldTimer = 0, dotsHoldStart = null, heldDots = false;
+// ---- the page bar: the dots shown as buttons with each page's icon and name (Settings › Display › Page navigation)
+/** dots (default), auto (a bar while the dots are being used), bar (always, with its own space) or hidden (none). */
+export const pageBarMode = () => (['auto', 'bar', 'hidden'].includes(cfg.display?.pageBar) ? cfg.display.pageBar : 'dots');
+const pageBarSide = () => (['left', 'right'].includes(cfg.display?.pageBarSide) ? cfg.display.pageBarSide : 'bottom');
+let pageBarKey = '', pageBarTimer = 0, pageBarOpen = false;
+/** In "auto" mode, opens the bar and closes it again 5 s after the last touch on it. */
+function showPageBar() {
+  pageBarOpen = true;
+  applyPageBar();
+  clearTimeout(pageBarTimer);
+  const close = () => {
+    if (scrubFrom) { pageBarTimer = setTimeout(close, 1000); return; } // not while a finger slides along it
+    pageBarOpen = false;
+    applyPageBar();
+  };
+  pageBarTimer = setTimeout(close, 5000);
+}
+export function applyPageBar() {
+  const mode = pageBarMode(), side = pageBarSide();
+  const docked = mode === 'bar' && pages.length > 1;
+  const shown = docked || (mode === 'auto' && pageBarOpen);
+  const key = `${mode}|${side}|${docked}|${shown}`;
+  if (key === pageBarKey) return;
+  const [wasMode, wasSide, wasDocked] = pageBarKey.split('|');
+  const reflow = (wasDocked === 'true') !== docked || (docked && (wasMode !== mode || wasSide !== side));
+  pageBarKey = key;
+  const b = document.body.classList;
+  b.toggle('pagebar-docked', docked);
+  b.toggle('dots-hidden', mode === 'hidden'); // swipes, the volume keys and a long press on an empty spot still work (#475)
+  b.toggle('pagebar-left', side === 'left');
+  b.toggle('pagebar-right', side === 'right');
+  $('dots').classList.toggle('pagebar', shown);
+  $('dots').classList.toggle('pb-vertical', shown && side !== 'bottom');
+  // a docked bar changes the size of the pages: keep the current one in place
+  if (reflow) requestAnimationFrame(() => goPage(curPage, true));
+  fitPageBar();
+}
+/** Adds .pb-tight when a bottom/top page bar does not fit the screen, so only the current page keeps its name (#553). */
+export function fitPageBar() {
+  const d = $('dots');
+  d.classList.remove('pb-tight'); // measure with every name showing
+  if (!d.classList.contains('pagebar') || d.classList.contains('pb-vertical')) return;
+  // the buttons shrink before the bar overflows, so a name cut short ("首", "播…") is the sign that it does not fit
+  const cut = [...d.querySelectorAll('.dot-nm')].some((n) => n.scrollWidth > n.clientWidth);
+  if (cut || d.scrollWidth > d.clientWidth) d.classList.add('pb-tight');
+}
+/** Whether the dots show as a page bar down the left or right edge (slides then go up and down). */
+const barVertical = () => $('dots').classList.contains('pagebar') && $('dots').classList.contains('pb-vertical');
+/** Where a pointer is along the bar, and across it. */
+const along = (e) => (barVertical() ? e.clientY : e.clientX);
+const across = (e) => (barVertical() ? e.clientX : e.clientY);
+/** The page whose dot is nearest to position a along the bar. */
+function dotAt(a) {
+  const v = barVertical();
+  let best = 0, gap = Infinity;
+  $('dots').querySelectorAll('.dot').forEach((d, i) => {
+    const r = d.getBoundingClientRect();
+    const dist = v ? Math.abs(a - (r.top + r.height / 2)) : Math.abs(a - (r.left + r.width / 2));
+    if (dist < gap) { gap = dist; best = i; }
+  });
+  return best;
+}
+/** Ends a slide along the dots: no dot is aimed at any more, and the page name fades. */
+function endScrub() {
+  if (!scrubFrom) return;
+  const was = scrubFrom.at;
+  scrubFrom = null;
+  $('dots').querySelectorAll('.dot.aim').forEach((d) => d.classList.remove('aim'));
+  if (was !== null) showPageName(-1);
+}
 /** Cancels any pending long-press hold timer on the #dots bar. */
 function clearDotsHold() {
   if (dotsHoldTimer) { clearTimeout(dotsHoldTimer); dotsHoldTimer = 0; }
@@ -1944,11 +2393,18 @@ function clearDotsHold() {
 }
 $('dots').addEventListener('pointerdown', (e) => {
   heldDots = false;
+  scrubbed = false;
   clearDotsHold();
   if (pages.length < 2 || dimmed || document.body.classList.contains('waking')) return;
+  if (pageBarMode() === 'auto') {
+    const opening = !$('dots').classList.contains('pagebar');
+    showPageBar();
+    if (opening) { scrubbed = true; return; } // this touch only opens the bar
+  }
   if (e.pointerType === 'mouse' && e.button !== 0) return;
-  if (e.target.closest('.page-pause')) return;
+  if (e.target.closest('.page-pause, .page-all')) return;
   dotsHoldStart = [e.clientX, e.clientY];
+  scrubFrom = { a: along(e), c: across(e), id: e.pointerId, at: null };
   dotsHoldTimer = setTimeout(() => {
     dotsHoldTimer = 0;
     dotsHoldStart = null;
@@ -1958,7 +2414,38 @@ $('dots').addEventListener('pointerdown', (e) => {
 });
 $('dots').addEventListener('pointermove', (e) => {
   if (dotsHoldStart && Math.hypot(e.clientX - dotsHoldStart[0], e.clientY - dotsHoldStart[1]) > 10) clearDotsHold();
+  // sliding along the dots scrubs through the pages: the page under the finger is named, and opened on release
+  if (!scrubFrom || e.pointerId !== scrubFrom.id) return;
+  if (e.pointerType === 'mouse' && e.buttons === 0) { endScrub(); return; } // released outside the bar
+  if (scrubFrom.at === null) {
+    // a touch keeps its target while it moves, so a press that went up or down off the bar is ended here
+    if (Math.abs(across(e) - scrubFrom.c) > 24) { scrubFrom = null; return; }
+    if (Math.abs(along(e) - scrubFrom.a) <= 10) return;
+    try { $('dots').setPointerCapture(e.pointerId); } catch (_) {}
+  }
+  // a slide that wanders far up or down off the bar is called off: nothing opens when the finger lifts
+  if (Math.abs(across(e) - scrubFrom.c) > 60) { endScrub(); scrubbed = true; return; }
+  const at = dotAt(along(e));
+  if (at === scrubFrom.at) return;
+  scrubFrom.at = at;
+  $('dots').querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('aim', i === at));
+  $('dots').querySelectorAll('.dot')[at]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); // a bar with more pages than fit
+  showPageName(at, true);
+  haptic();
 });
+$('dots').addEventListener('pointerup', (e) => {
+  if (!scrubFrom || e.pointerId !== scrubFrom.id) return;
+  const at = scrubFrom.at;
+  endScrub();
+  if (at === null) return;
+  scrubbed = true; // the click that follows a scrub opens nothing
+  setTimeout(() => { scrubbed = false; }, 0);
+  if (at !== curPage) goPage(at, true);
+  else flashTitle();
+});
+$('dots').addEventListener('pointercancel', endScrub);
+// a press that leaves the bar before it became a slide is over (its release happens elsewhere)
+$('dots').addEventListener('pointerleave', (e) => { if (scrubFrom && e.pointerId === scrubFrom.id && scrubFrom.at === null) scrubFrom = null; });
 ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => $('dots').addEventListener(ev, clearDotsHold));
 window.addEventListener('blur', clearDotsHold);
 $('dots').addEventListener('click', (e) => {
@@ -1970,7 +2457,11 @@ $('dots').addEventListener('click', (e) => {
       return;
     }
   }
-  if (e.target.closest('.page-pause')) return;
+  if (scrubbed) { scrubbed = false; e.preventDefault(); e.stopPropagation(); return; }
+  if (e.target.closest('.page-pause, .page-all')) return;
+  const dot = e.target.closest('.dot');
+  const i = dot ? +dot.dataset.i : -1;
+  if (i >= 0 && i !== curPage && i < pages.length) { haptic(); goPage(i, Math.abs(i - curPage) > 1); return; }
   openOverview();
 });
 
@@ -1992,27 +2483,47 @@ let swipeStartY = 0;
 let swipeStartPage = 0;
 let swipeStartTime = 0;
 let swipeTracking = false;
+let swipeLastX = 0, swipeLastY = 0;
+
+/**
+ * Whether a sideways swipe that starts on el turns the page, as the browser decides it from touch-action: the wrap at
+ * either end follows the same rule as an ordinary page turn. A button or a card turns the page; the page dots, a
+ * slider or anything else that keeps sideways moves for itself does not (#487).
+ */
+function swipeTurnsPage(el) {
+  for (let n = el; n && n !== pager; n = n.parentElement) {
+    const ta = getComputedStyle(n).touchAction;
+    if (ta !== 'auto' && ta !== 'manipulation' && !/pan-(x|left|right)/.test(ta)) return false;
+  }
+  return true;
+}
 
 pager.addEventListener('touchstart', (e) => {
   swipeTracking = false;
   if (e.touches.length !== 1 || pages.length < 2) return;
   // Dragging a slider, the volume bar, a list or the station carousel must never flip (or wrap) the page.
-  if (volDragging || e.target.closest?.('button, input, textarea, select, a, [contenteditable], .s-list, .vb, .bar, .radio-carousel-track, .ac-dial')) return;
+  if (volDragging || e.target.closest?.('input, textarea, select, [contenteditable], .s-list, .vb, .bar, .radio-carousel-track, .ac-dial')
+    || !swipeTurnsPage(e.target)) return;
   swipeStartX = e.touches[0].clientX;
   swipeStartY = e.touches[0].clientY;
   swipeStartPage = curPage;
   swipeStartTime = Date.now();
+  swipeLastX = swipeStartX; swipeLastY = swipeStartY;
   swipeTracking = true;
 }, { passive: true });
 
-pager.addEventListener('touchend', (e) => {
-  if (!swipeTracking || !e.changedTouches || e.changedTouches.length !== 1 || pages.length < 2) {
-    swipeTracking = false;
-    return;
-  }
+// the last place the finger was seen, for a swipe whose end comes as a touchcancel (#651)
+pager.addEventListener('touchmove', (e) => {
+  if (!swipeTracking || e.touches.length !== 1) return;
+  swipeLastX = e.touches[0].clientX; swipeLastY = e.touches[0].clientY;
+}, { passive: true });
+
+/** Wraps to the other end when a quick sideways swipe that began on the first or last page ended at (x, y). */
+function finishSwipe(x, y) {
   swipeTracking = false;
-  const dx = e.changedTouches[0].clientX - swipeStartX;
-  const dy = e.changedTouches[0].clientY - swipeStartY;
+  if (pages.length < 2) return;
+  const dx = x - swipeStartX;
+  const dy = y - swipeStartY;
   const dt = Date.now() - swipeStartTime;
 
   if (dt < 700 && Math.abs(dx) >= 40 && Math.abs(dx) > Math.abs(dy) * 1.3) {
@@ -2024,14 +2535,69 @@ pager.addEventListener('touchend', (e) => {
       goPage(pages.length - 1, true);
     }
   }
+}
+
+pager.addEventListener('touchend', (e) => {
+  if (!swipeTracking || !e.changedTouches || e.changedTouches.length !== 1) { swipeTracking = false; return; }
+  finishSwipe(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
 }, { passive: true });
 
-pager.addEventListener('touchcancel', () => { swipeTracking = false; }, { passive: true });
+// Some WebViews (a Galaxy M52 on Android 13, #651) hand a swipe at the first or last page to their own overscroll and
+// end it with a touchcancel instead of a touchend: the swipe is judged by where the finger was last seen.
+// A touch that began at the screen's very edge is left alone: Android's back gesture ends with a touchcancel too.
+pager.addEventListener('touchcancel', (e) => {
+  if (!swipeTracking) return;
+  if (swipeStartX < 24 || swipeStartX > window.innerWidth - 24) { swipeTracking = false; return; }
+  // the cancelled touch's own last position when the event has it, else the last move seen
+  const t = e.changedTouches?.length === 1 ? e.changedTouches[0] : null;
+  if (t && Number.isFinite(t.clientX) && Number.isFinite(t.clientY)) finishSwipe(t.clientX, t.clientY);
+  else finishSwipe(swipeLastX, swipeLastY);
+}, { passive: true });
+
+const WAKE_MS = 30_000;
+// Cap a contact without any move or release so a missed WebView up/cancel cannot hold the screen awake indefinitely.
+const TOUCH_STALE_MS = 120_000;
+const activePointers = new Map();
+const ignoredPointers = new Set();
+const activeTouchMap = new Map();
+const ignoredTouches = new Set();
+const isNavControl = (e) => !!e.target?.closest?.('#navCard, #navChip');
+function clearActiveInput() {
+  activePointers.clear();
+  ignoredPointers.clear();
+  activeTouchMap.clear();
+  ignoredTouches.clear();
+}
+function clearMousePointers() {
+  for (const [id, p] of activePointers) if (p.mouse) activePointers.delete(id);
+}
+function isTouching(now = Date.now()) {
+  for (const [id, p] of activePointers) if (now - p.at >= TOUCH_STALE_MS) activePointers.delete(id);
+  for (const [id, at] of activeTouchMap) if (now - at >= TOUCH_STALE_MS) activeTouchMap.delete(id);
+  return activePointers.size > 0 || activeTouchMap.size > 0;
+}
+const extendWake = (now = Date.now()) => { wakeUntil = Math.max(wakeUntil, now + WAKE_MS); };
+
+function wakeFromNight(now = Date.now()) {
+  extendWake(now);
+  if (darkRoom) {
+    darkRoom = false;
+    darkSince = lux !== null && lux < 3 ? now : 0;
+  }
+  setNight(false);
+}
+
+function recordInteraction(now = Date.now()) {
+  lastTouch = lastUserTouch = now;
+  if (nightOn) wakeFromNight(now);
+  else extendWake(now);
+}
 
 /** Called by the Android shell (volume keys) and by arrow keys in a desktop browser. */
 window.onAndroidKey = (k) => {
-  lastTouch = lastUserTouch = Date.now();
-  if (nightOn) { wakeUntil = Date.now() + 30_000; setNight(false); return; }
+  const wasNight = nightOn;
+  recordInteraction();
+  if (wasNight) return;
   if (!$('overview').hidden) closeOverview();
   if (k === 'next') goPage(curPage + 1 >= pages.length ? 0 : curPage + 1, true);
   else if (k === 'prev') goPage(curPage - 1 < 0 ? pages.length - 1 : curPage - 1, true);
@@ -2061,15 +2627,99 @@ window.onAndroidBack = () => {
   else if (curPage !== homeIndex()) goPage(homeIndex(), true);
   else openOverview();
 };
-window.addEventListener('resize', () => { buildLayout(); goPage(curPage, true); });
+window.addEventListener('resize', () => { buildLayout(); goPage(curPage, true); fitPageBar(); });
 
-['pointerdown', 'touchstart'].forEach((ev) => document.addEventListener(ev, (e) => {
-  if (dimmed) wakeFromDim();
-  if (e.target?.closest?.('#navCard, #navChip')) return;
-  lastTouch = lastUserTouch = Date.now();
+let lastMoveTouch = 0;
+function noteMove() {
+  if (nightOn || dimmed) return;
+  const now = Date.now();
+  if (Math.abs(now - lastMoveTouch) < 1000) return;
+  lastMoveTouch = now;
+  recordInteraction(now);
+}
+function onTouchBegin(e) {
   if (navQueue.length) { navQueue = navQueue.filter((r) => r.kind !== 'home'); pump(); }
-  if (nightOn) { wakeUntil = Date.now() + 30_000; setNight(false); }
+  recordInteraction();
+}
+window.addEventListener('pointerdown', (e) => {
+  if (dimmed) wakeFromDim();
+  const id = e.pointerId ?? 0;
+  if (isNavControl(e)) { ignoredPointers.add(id); return; }
+  ignoredPointers.delete(id);
+  activePointers.set(id, { at: Date.now(), mouse: e.pointerType === 'mouse' });
+  onTouchBegin(e);
+}, { passive: true, capture: true });
+window.addEventListener('touchstart', (e) => {
+  if (dimmed) wakeFromDim();
+  const list = e.changedTouches?.length ? e.changedTouches : e.touches;
+  const nav = isNavControl(e);
+  const now = Date.now();
+  let nonNav = false;
+  for (let i = 0; list && i < list.length; i++) {
+    const t = list[i];
+    const id = t.identifier ?? i;
+    if (nav || t.target?.closest?.('#navCard, #navChip')) {
+      ignoredTouches.add(id);
+      activeTouchMap.delete(id);
+    } else {
+      ignoredTouches.delete(id);
+      activeTouchMap.set(id, now);
+      nonNav = true;
+    }
+  }
+  if (!nonNav) return;
+  onTouchBegin(e);
+}, { passive: true, capture: true });
+window.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'mouse' && e.buttons === 0) { clearMousePointers(); return; }
+  if (e.buttons === 0 && e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+  const id = e.pointerId ?? 0;
+  if (ignoredPointers.has(id) || isNavControl(e)) return;
+  if (activePointers.has(id)) activePointers.set(id, { at: Date.now(), mouse: e.pointerType === 'mouse' });
+  noteMove();
+}, { passive: true, capture: true });
+document.documentElement.addEventListener('pointerleave', clearMousePointers, { passive: true });
+window.addEventListener('touchmove', (e) => {
+  const list = e.changedTouches?.length ? e.changedTouches : e.touches;
+  const nav = isNavControl(e);
+  const now = Date.now();
+  let movedNonNav = false;
+  for (let i = 0; list && i < list.length; i++) {
+    const id = list[i].identifier ?? i;
+    if (ignoredTouches.has(id)) continue;
+    if (activeTouchMap.has(id) || !nav) {
+      activeTouchMap.set(id, now);
+      movedNonNav = true;
+    }
+  }
+  if (movedNonNav) noteMove();
+}, { passive: true, capture: true });
+['pointerup', 'pointercancel'].forEach((ev) => window.addEventListener(ev, (e) => {
+  const id = e.pointerId ?? 0;
+  const ignored = ignoredPointers.delete(id);
+  const tracked = activePointers.delete(id);
+  if (ignored || isNavControl(e) || !tracked) return;
+  if (!nightOn) recordInteraction();
 }, { passive: true, capture: true }));
+['touchend', 'touchcancel'].forEach((ev) => window.addEventListener(ev, (e) => {
+  const ended = e.changedTouches?.length ? e.changedTouches : null;
+  let releasedNonNav = false;
+  if (ended) {
+    for (let i = 0; i < ended.length; i++) {
+      const id = ended[i].identifier ?? i;
+      const ignored = ignoredTouches.delete(id);
+      const tracked = activeTouchMap.delete(id);
+      if (!ignored && tracked && !isNavControl(e)) releasedNonNav = true;
+    }
+  } else if ((e.touches?.length ?? 0) === 0) {
+    releasedNonNav = activeTouchMap.size > 0 && !isNavControl(e);
+    activeTouchMap.clear();
+    ignoredTouches.clear();
+  }
+  if (e.touches && e.touches.length === 0) { activeTouchMap.clear(); ignoredTouches.clear(); }
+  if (releasedNonNav && !nightOn) recordInteraction();
+}, { passive: true, capture: true }));
+window.addEventListener('blur', clearActiveInput);
 
 // ---------------------------------------------------------------- clock tick & night mode
 export function parseHM(s) { const [hh, mm] = (s || '0:0').split(':').map(Number); return hh * 60 + (mm || 0); }
@@ -2097,7 +2747,9 @@ function reconcileUnreachableNight(now = new Date()) {
   const unreachable = enabled && unreachableSince > 0
     && Date.now() - unreachableSince >= delayMin * 60_000;
   const dark = darkRoom && cfg.display?.nightWhenDark === true;
-  setNight((isNight(now) || dark || unreachable) && Date.now() > wakeUntil);
+  // a running rule can hold the night screen up (its "night" action): the agent's active list carries ids only, so match them against cfg.rules
+  const ruleNight = (D.state?.rules || []).some((id) => (cfg.rules || []).some((r) => r.id === id && r.then === 'night'));
+  setNight((isNight(now) || dark || unreachable || ruleNight) && Date.now() > wakeUntil && !isTouching());
 }
 /**
  * Before widgets are built: a timer that ran out while the panel was closed rings during the build, so the night
@@ -2137,8 +2789,7 @@ window.onAndroidSensor = (kind, value) => {
   } else if (kind === 'proximity' && value === true && cfg.display?.proximityWake !== false && (nightOn || dimmed)) {
     undim();
     if (!nightOn) return;
-    wakeUntil = Date.now() + 30_000;
-    setNight(false);
+    wakeFromNight();
   }
 };
 
@@ -2205,9 +2856,12 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) undi
 export function tick() {
   if (lastHour12 !== null && hour12() !== lastHour12) { buildLayout(); renderRulesBtn(); }
   const now = new Date();
-  $('nClock').textContent = fmtHM(now);
+  $('nClock').textContent = fmtNightClock(now);
   $('nDate').textContent = now.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' });
-  if (darkSince && Date.now() - darkSince > 30_000) darkRoom = true;
+  const nowMs = now.getTime();
+  const touching = isTouching(nowMs);
+  if (touching) { lastTouch = lastUserTouch = nowMs; extendWake(nowMs); }
+  if (darkSince && !touching && nowMs - Math.max(darkSince, lastUserTouch) > 30_000) darkRoom = true;
   reconcileUnreachableNight(now);
   if (!PREVIEW && idleDue() && !navQueue.some((r) => r.kind === 'home')) {
     if (curPage === homeIndex()) { closeSheet(); closeOverview(); lastNav = Date.now(); } // only a sheet to close
@@ -2215,11 +2869,35 @@ export function tick() {
   }
   applyBurnIn();
   document.body.classList.toggle('controls-top', cfg.display?.controlsTop === true);
-  if (!nightOn) emit('tick');
+  applyPageBar();
+  if (!nightOn) { emit('tick'); updatePhotoBg(); }
   setTimeout(tick, 1000 - (Date.now() % 1000) + 5);
 }
 
 // ---------------------------------------------------------------- data from the agent
+// The wallpaper (Settings › Display): one picture behind every page, darkened and optionally blurred so the widgets
+// stay readable. Its revision is in the URL, so an unchanged picture comes from the cache and a new one is fetched.
+let wallpaperRev = null;
+function applyWallpaper(w = {}) {
+  const rev = cfg.wallpaperRev ?? null;
+  let el = document.getElementById('wallpaper');
+  document.body.classList.toggle('has-wallpaper', rev != null);
+  if (rev == null) { el?.remove(); wallpaperRev = null; return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'wallpaper';
+    el.setAttribute('aria-hidden', 'true');
+    document.body.prepend(el);
+  }
+  const num = (v, def, max) => (Number.isFinite(+v) && v !== null && v !== '' ? Math.min(max, Math.max(0, +v)) : def);
+  el.style.setProperty('--wp-dim', String(num(w.dim, 45, 90) / 100));
+  el.style.setProperty('--wp-blur', `${num(w.blur, 0, 20)}px`);
+  if (rev !== wallpaperRev) {
+    el.style.backgroundImage = `url("${API}/wallpaper?v=${encodeURIComponent(String(rev))}")`;
+    wallpaperRev = rev;
+  }
+}
+
 export function applyDisplay() {
   const d = cfg.display || {};
   const langChanged = I18n ? I18n.setLang(d.language || 'auto') : false;
@@ -2233,6 +2911,7 @@ export function applyDisplay() {
   document.documentElement.style.setProperty('--accent', `rgb(${DEFAULT_AMBIENT})`);
   artTint = d.artTint !== false;
   if (before !== DEFAULT_AMBIENT || !artTint) setAmbient(artTint ? currentArtColor : null);
+  applyWallpaper(d.wallpaper);
   if (langChanged) { buildLayout(); renderApproval(); }
   renderRulesBtn();
   if (PREVIEW || !bridge) return;
@@ -2241,6 +2920,8 @@ export function applyDisplay() {
   try { bridge.setPinned && bridge.setPinned(d.pin === true); } catch (_) {}
   try { bridge.setOrientation && bridge.setOrientation(['portrait', 'auto'].includes(d.orientation) ? d.orientation : 'landscape'); } catch (_) {}
   try { bridge.setHomeScreen && bridge.setHomeScreen(d.homeScreen === true); } catch (_) {}
+  // standby is opt-in: an absent or older agent leaves the stock behaviour alone
+  try { bridge.setStandby && bridge.setStandby(d.standby || 'off', +(d.standbyGraceSec ?? 30)); } catch (_) {}
   applyBrightness(true);
 }
 
@@ -2392,8 +3073,9 @@ export function applyState(s, replayGen = null) {
   // they go through evOffer like live ones: while a replay is armed the queue merges them before dispatch
   if (fresh || replayGen === evGen) for (const e of s.events || []) evOffer(e);
   if (!fresh) return replayGen === evGen;
+  const shownMedia = effectiveMedia(s.media); // s.media stays the agent's own reading (see above)
   D.state = s;
-  media = mediaFrom(media, s.media);
+  media = mediaFrom(media, shownMedia);
   setOnline(true);
   if (s.cfgVersion !== undefined && cfgVersion !== null && s.cfgVersion !== cfgVersion) loadConfig();
   if (s.pushVersion !== undefined && s.pushVersion !== pushVersion) loadPush();
@@ -2409,7 +3091,9 @@ export function applyState(s, replayGen = null) {
   if (!$('overview').hidden) renderRulesBtn();
   {
     const pc = s.pc;
-    if (pc) {
+    if (pc && (pc.seq == null || pc.seq !== histSeq || (pc.runId ?? null) !== histRunId)) {
+      histSeq = pc.seq ?? null;
+      histRunId = pc.runId ?? null;
       pushHist('cpu', pc.cpu);
       pushHist('gpu', pc.gpu?.util);
       pushHist('ram', pc.ramUsedGb);
@@ -2423,6 +3107,7 @@ export function applyState(s, replayGen = null) {
       pushHist('hotspot', pc.gpu?.hotSpot);
       pushHist('gpupower', pc.gpu?.power ?? pc.gpu?.powerPct);
       pushHist('gpuclock', pc.gpu?.clock);
+      pushHist('cpupower', pc.cpuPower);
     }
   }
   emit('state');
@@ -2454,13 +3139,18 @@ export const idle = () => appPaused || document.hidden;
 window.onAppPause = (paused) => {
   const was = idle();
   appPaused = !!paused;
+  if (appPaused) clearActiveInput();
   if (was && !idle()) wokeUp();
 };
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !appPaused) wokeUp(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) clearActiveInput();
+  else if (!appPaused) wokeUp();
+});
 // what the paused panel skipped is fetched at once, not at the next interval
 function wokeUp() {
   if (!online) return;
   loadConfig(); loadPush(); loadApprovals();
+  watchMedia(true);
   if (anyNeeds('quotas')) loadQuotas();
   if (anyNeeds('calendar')) loadCalendar();
   if (anyNeeds('work') && !streaming()) loadWork();
@@ -2512,13 +3202,17 @@ setInterval(() => { if (online && !idle() && anyNeeds('calendar')) loadCalendar(
 setInterval(() => { if (online && !idle() && anyNeeds('work') && !streaming()) loadWork(); }, 3000);
 setInterval(() => { if (idle()) return; if (online && pageOf('procs')) loadProcs(); if (online && sheet) loadSheet(); }, 2000);
 setInterval(() => { if (online && !idle()) loadConfig(); }, 60_000);
+setInterval(watchMedia, 5000);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && lastHour12 !== null && hour12() !== lastHour12) {
     buildLayout();
     renderRulesBtn();
-    $('nClock').textContent = fmtHM(new Date());
+    $('nClock').textContent = fmtNightClock(new Date());
   }
 });
+// the phone's song at once: with the computer off no state frame comes to ask for it, and the push from onResume runs before this
+// page has loaded
+window.onPhoneMedia(bridge?.phoneMedia?.() ?? 'null');
 poll();
 
 if (PREVIEW) {
@@ -2548,9 +3242,14 @@ function reportBattery() {
     const b = JSON.parse(bridge.battery());
     // the phone's view of its USB link lets the agent explain a cable that only charges (see UsbDoctor.cs)
     const usb = b.usb ? ['connected', 'configured', 'adb'].filter((k) => b.usb[k]).join(',') || 'none' : '';
-    if (b.level >= 0) api(`/phone/battery?level=${b.level}&plugged=${!!b.plugged}&temp=${b.temp || 0}&source=${b.source || ''}&usb=${usb}`, 'POST', 4000).catch(() => {});
+    if (b.level >= 0) api(`/phone/battery?level=${b.level}&plugged=${!!b.plugged}&temp=${b.temp || 0}&source=${b.source || ''}&usb=${usb}&viewWidth=${window.innerWidth}&viewHeight=${window.innerHeight}`, 'POST', 4000).catch(() => {});
   } catch (_) {}
 }
+let resizeReportTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeReportTimer);
+  resizeReportTimer = setTimeout(reportBattery, 300);
+});
 setInterval(reportBattery, 30_000);
 setTimeout(reportBattery, 5000);
 

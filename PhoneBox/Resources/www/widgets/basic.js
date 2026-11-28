@@ -1,6 +1,8 @@
-import { $, API, D, LEVEL_COLOR, LOCALE, mediaHtml, METRICS, PANEL_HEADERS, PREVIEW, Q_STYLE, S_ORDER, ago, api, averageColor, buildLayout, buzz, cfg, chime, cfgVersion, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, en, haptic, hasProcessesPage, hist, hour12, icon, keyButton, setKeyFace, labelled, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, configMark, configReadSince, localWriteStored, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxDeg, wxIcon, emo, rich, tp, tpv, quotaText } from '../main.js';
+import { $, API, D, LEVEL_COLOR, phoneMediaArt, phoneMediaControl, phoneAudio, phoneMute, phoneVolume, setMediaChoice, swapOn, swapPhone, LOCALE, mediaHtml, METRICS, PANEL_HEADERS, PREVIEW, Q_STYLE, S_ORDER, ago, api, averageColor, buildLayout, buzz, cfg, chime, cfgVersion, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, clockPeriod, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, en, haptic, hasProcessesPage, hist, hour12, icon, keyButton, setKeyFace, labelled, levelOf, media, mediaPosMs, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, quotaWanted, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, configMark, configReadSince, localWriteStored, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxDeg, wxIcon, emo, rich, tp, tpv, quotaText, pages, curPage, gotoPageRef } from '../main.js';
 import { W } from '../registry.js';
+import { weekStartDay } from './time.js';
 import { invalidateDeckState } from './controls.js';
+import { parseWidgets } from './stack.js';
 
 function bindProcessLink(box, sortTarget) {
   if (!hasProcessesPage()) return;
@@ -23,6 +25,7 @@ W.clock = {
     const hh = h('span', 'hh', '--'), colon = h('span', 'colon', ':'), mm = h('span', 'mm', '--'), ss = h('span', 'sec'), ap = h('span', 'ap');
     const date = o.date !== false ? h('div', 'date') : null;
     const wx = o.weather !== false ? wxBlock() : null;
+    box.classList.toggle('clock-centered', o.align === 'center');
     box.append(status || '', h('div', 'clock', hh, colon, mm, ss, ap), date || '', wx || '');
     box.style.setProperty('--tf', (0.84 - (status ? 0.1 : 0) - (date ? 0.11 : 0) - (wx ? 0.2 : 0)).toFixed(2));
     return {
@@ -33,7 +36,7 @@ W.clock = {
           const now = new Date();
           const H = now.getHours(), h12 = hour12();
           hh.textContent = h12 ? String(H % 12 || 12) : pad(H);
-          ap.textContent = h12 ? (H < 12 ? 'AM' : 'PM') : '';
+          ap.textContent = h12 ? clockPeriod(now) : '';
           mm.textContent = pad(now.getMinutes());
           ss.textContent = cfg.display?.showSeconds === false ? '' : pad(now.getSeconds());
           // the colon blinks once a second from here, not from a CSS animation: a running animation makes the browser draw a frame
@@ -93,7 +96,7 @@ W.forecast = {
             const i = start + k * step;
             if (i >= hr.time.length || hr.temperature_2m?.[i] == null) break;
             const rain = hr.precipitation_probability?.[i];
-            cells.push(h('div', 'fc-i', h('span', 'fc-t', k === 0 ? 'Now' : hr.time[i].slice(11, 13)), h('span', 'fc-ic', emo(wxIcon(hr.weather_code[i], hr.is_day?.[i]))),
+            cells.push(h('div', 'fc-i', h('span', 'fc-t', k === 0 ? tp('Now') : hr.time[i].slice(11, 13)), h('span', 'fc-ic', emo(wxIcon(hr.weather_code[i], hr.is_day?.[i]))),
               h('span', 'fc-v', wxDeg(hr.temperature_2m[i]) + '°'), h('span', 'fc-r', rain >= 20 ? rich(`💧${rain}%`) : '')));
           }
         }
@@ -104,7 +107,7 @@ W.forecast = {
 };
 
 W.media = {
-  needs: ['state', 'fast'],
+  needs: ['state', 'fast', 'media'], // 'media': the agent reads the players every second while this is on screen
   create(box) {
     box.innerHTML = mediaHtml();
     const q = (s) => box.querySelector(s);
@@ -122,10 +125,12 @@ W.media = {
       haptic();
       const action = btn.dataset.media;
       if (action === 'playpause' && media) {
+        media.posMs = mediaPosMs(media);
         media.playing = !media.playing; // optimistic update
         media.at = performance.now();
         box.classList.toggle('playing', media.playing);
       }
+      if (media?.phone) { phoneMediaControl(action); return; } // the phone's own song: its buttons drive the phone, and it tells the panel back
       try {
         const res = await api('/media/' + action, 'POST');
         if (res && typeof res === 'object' && 'media' in res) setMediaState(res.media);
@@ -133,6 +138,8 @@ W.media = {
         emit('tick');
       } catch (_) {}
     }));
+    // both the computer and the phone play: a two-sided switch shows which one the widget follows
+    q('.m-swap').addEventListener('click', () => { haptic(); setMediaChoice(swapPhone ? 'mac' : 'phone'); });
     // The position bar is a slider. Holding it (touch, mouse) or moving it with the arrow keys shows a bubble with the time
     // the song will continue from; it seeks on release, not while moving. Meanwhile the once-a-second state and the 250 ms
     // refresh leave the bar alone (see update()).
@@ -140,12 +147,12 @@ W.media = {
     let scrub = null, seekTimer = 0, ariaSec = -1; // scrub: { id, ms, key } while held
     const canScrub = () => !!(media && media.durMs > 0 && media.canSeek);
     // which song a held bar belongs to: a different one underneath (next track) cancels the scrub instead of seeking it
-    const trackKey = () => (media ? [media.app, media.title, media.durMs].join('\n') : '');
+    const trackKey = () => (media ? [media.phone ? 'phone' : 'computer', media.app, media.title, media.durMs].join('\n') : ''); // the source too: a pending seek must not follow a switch to the other one
     const paintAria = (ms) => {
       bar.setAttribute('aria-valuenow', Math.round(ms / 1000));
       bar.setAttribute('aria-valuetext', fmtTime(ms));
     };
-    const nowMs = () => Math.min(media.durMs, media.posMs + (media.playing ? performance.now() - media.at : 0));
+    const nowMs = () => mediaPosMs(media);
     const msFrom = (clientX) => {
       const r = bar.getBoundingClientRect();
       return Math.round(Math.min(1, Math.max(0, (clientX - r.left) / r.width)) * media.durMs);
@@ -167,7 +174,8 @@ W.media = {
       haptic();
       // the bar stays where it was put until the agent has caught up: its next samples still hold the old position
       media.posMs = ms; media.at = performance.now(); media.hold = performance.now() + 2500;
-      api('/media/seek?ms=' + ms, 'POST').catch(() => {});
+      if (media.phone) phoneMediaControl('seek', ms);
+      else api('/media/seek?ms=' + ms, 'POST').catch(() => {});
     };
     const startScrub = (id, ms) => { scrub = { id, ms, key: trackKey() }; bar.classList.add('scrubbing'); paintScrub(ms); };
     bar.addEventListener('pointerdown', (e) => {
@@ -204,7 +212,11 @@ W.media = {
       setVolDragging(vol, true);
       paintVol(vol.value);
       clearTimeout(volTimer);
-      volTimer = setTimeout(() => api('/volume?level=' + vol.value, 'POST').catch(() => {}), 120);
+      const toPhone = !!media?.phone, level = vol.value; // bound to what the slider showed when it moved
+      volTimer = setTimeout(() => {
+        if (!!media?.phone !== toPhone) return; // the source changed meanwhile: this level was not meant for the other device
+        if (toPhone) phoneVolume(Number(level)); else api('/volume?level=' + level, 'POST').catch(() => {});
+      }, 120);
     });
     vol.addEventListener('change', () => {
       clearTimeout(volumeRelease);
@@ -213,6 +225,7 @@ W.media = {
     vol.addEventListener('pointercancel', cancelVolumeDrag);
     q('.mute').addEventListener('click', async () => {
       haptic();
+      if (media?.phone) { phoneMute(); setTimeout(() => emit('state'), 150); return; } // the phone's own media volume
       if ((!D.state?.audio || D.state.audio.canControl === false)) return;
       try { const a = await api('/volume?op=mute', 'POST'); D.state.audio = a; emit('state'); } catch (_) {}
     });
@@ -223,18 +236,18 @@ W.media = {
         if (kind === 'fast') {
           if (!media || scrub) return; // while the bar is held it shows the chosen time, not the song's
           if (media.durMs > 0) {
-            const pos = Math.min(media.durMs, media.posMs + (media.playing ? performance.now() - media.at : 0));
+            const pos = mediaPosMs(media);
             q('.fill').style.width = (pos / media.durMs) * 100 + '%';
             q('.m-pos').textContent = fmtTime(pos);
             if (Math.floor(pos / 1000) !== ariaSec) { ariaSec = Math.floor(pos / 1000); paintAria(pos); } // once a second, not every 250 ms
           } else if (media.app === 'Internet Radio') {
-            const pos = Math.max(0, (media.posMs || 0) + (media.playing ? performance.now() - media.at : 0));
+            const pos = mediaPosMs(media);
             q('.fill').style.width = media.playing ? '100%' : '0';
             q('.m-pos').textContent = fmtTime(pos);
           }
           return;
         }
-        const m = D.state?.media, a = D.state?.audio;
+        const m = media, a = m?.phone ? phoneAudio() : D.state?.audio; // the volume row follows the song shown
         vol.disabled = (!a || a.canControl === false);
         box.classList.toggle('volume-unavailable', (!a || a.canControl === false));
         q('.mute').disabled = (!a || a.canControl === false);
@@ -243,6 +256,9 @@ W.media = {
           if (!volDragging) { vol.value = a.volume; paintVol(a.volume); }
         } else q('.vol-val').textContent = 'n/a';
         box.classList.toggle('idle', !m);
+        box.classList.toggle('phone-song', !!m?.phone); // its own song needs no computer: the offline message stays off it
+        q('.m-swap').hidden = !swapOn; // while the phone has a song, also when the computer shows nothing
+        q('.m-swap').classList.toggle('phone', swapPhone);
         if (!m) {
           endScrub(false);
           box.classList.remove('playing');
@@ -281,7 +297,8 @@ W.media = {
         }
         if (m.artId !== artId) {
           artId = m.artId;
-          if (m.artId) img.src = `${API}/art?id=${m.artId}`;
+          const phoneArt = m.artId && m.phone ? phoneMediaArt(m.artId) : '';
+          if (phoneArt || (m.artId && !m.phone)) img.src = phoneArt || `${API}/art?id=${m.artId}`;
           else { img.classList.remove('on'); setArtColor(null); }
         }
       },
@@ -309,8 +326,8 @@ W.stat = {
         val.textContent = v;
         unit.textContent = u;
         const pctVal = m.pct?.(s);
-        lbl.textContent = pctVal != null && m.label === 'RAM' ? `RAM (${Math.round(pctVal)}%)` : tp(m.label);
-        sub.textContent = m.sub?.(s) || ' ';
+        lbl.textContent = pctVal != null && m.label === 'RAM' ? `${tp('RAM')} (${Math.round(pctVal)}%)` : tp(m.label);
+        sub.replaceChildren(h('bdi', null, m.sub?.(s) || ' '));
         chart(canvas, [{ data: hist[m.hist || o.metric] || hist.cpu, color: c, max: m.max(s) }]);
       },
     };
@@ -340,7 +357,7 @@ W.gauge = {
         svg = dial.firstElementChild;
         const [v, u] = metricText(m, s);
         pct.replaceChildren(v, h('small', null, u));
-        sub.textContent = m.sub?.(s) || '';
+        sub.replaceChildren(h('bdi', null, m.sub?.(s) || ''));
       },
     };
   },
@@ -349,8 +366,10 @@ W.gauge = {
 W.chart = {
   needs: ['state'],
   create(box, { o }) {
-    // a list of only unknown names falls back like no list at all; own keys only, so "constructor" is unknown too
-    const keys = (Array.isArray(o.metrics) && o.metrics.length ? o.metrics : ['cpu']).filter((k) => Object.prototype.hasOwnProperty.call(METRICS, k));
+    const requested = Array.isArray(o.metrics) && o.metrics.length ? o.metrics : ['cpu'];
+    const known = k => Object.prototype.hasOwnProperty.call(METRICS, k);
+    const keys = requested.filter(known);
+    const missing = [...new Set(requested.filter(k => typeof k === 'string' && !known(k)))].join(', ');
     if (!keys.length) keys.push('cpu');
     const single = keys.length === 1 ? METRICS[keys[0]] : null;
     const isNet = keys.every((k) => k === 'down' || k === 'up');
@@ -360,6 +379,12 @@ W.chart = {
     const main = h('div', 's-main');
     const canvas = h('canvas');
     box.append(head, main, canvas);
+    if (missing) {
+      const message = t('w.chartUnknownMetrics', { metrics: missing });
+      const note = h('div', 'chart-missing', message);
+      note.title = message;
+      box.append(note);
+    }
     if (keys.includes('cpu') || keys.includes('ram')) bindProcessLink(box, keys.includes('cpu') ? 'cpu' : 'mem');
     return {
       update() {
@@ -367,7 +392,7 @@ W.chart = {
         if (!s) return;
         if (single) {
           const [v, u] = metricText(single, s);
-          main.replaceChildren(h('b', null, v), h('small', null, u), h('span', 'chips', single.sub?.(s) ? h('span', 'chip', single.sub(s)) : ''));
+          main.replaceChildren(h('b', null, v), h('small', null, u), h('span', 'chips', single.sub?.(s) ? h('span', 'chip', h('bdi', null, single.sub(s))) : ''));
           head.lastChild.textContent = single.title?.(s) || '';
         } else {
           main.replaceChildren(...keys.map((k) => {
@@ -377,7 +402,7 @@ W.chart = {
             e.style.color = color(mm.color);
             return e;
           }));
-          head.lastChild.textContent = isNet && s.ping ? tpv('Ping {ms} · loss {loss}%', { ms: s.ping.ms != null ? Math.round(s.ping.ms) + ' ms' : '—', loss: s.ping.lossPct }) : '';
+          head.lastChild.textContent = isNet && s.ping ? tpv('Ping {ms} · loss {loss}%', { ms: s.ping.ms != null ? Math.round(s.ping.ms) + ' ' + tp('ms') : '—', loss: s.ping.lossPct }) : '';
         }
         chart(canvas, keys.map((k) => ({ data: hist[METRICS[k].hist || k], color: color(METRICS[k].color), max: METRICS[k].max(s) })), { grid: true });
       },
@@ -404,14 +429,14 @@ W.meters = {
         const pc = D.state?.pc;
         if (!pc) return;
         const s = pc.uptimeSec, d = Math.floor(s / 86400), hr = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
-        up.textContent = tp('Up ') + (d ? `${d} d ${hr} h` : hr ? `${hr} h ${m} min` : `${m} min`);
-        const rows = [meter('RAM', `${r1(pc.ramUsedGb)} / ${Math.round(pc.ramTotalGb)} GB`, (pc.ramUsedGb / pc.ramTotalGb) * 100)];
+        up.textContent = tp('Up ') + (d ? t('time.dH', { d, h: hr }) : hr ? t('time.hMin', { h: hr, m }) : t('time.min', { m }));
+        const rows = [meter(tp('RAM'), `${r1(pc.ramUsedGb)} / ${Math.round(pc.ramTotalGb)} ${tp('GB')}`, (pc.ramUsedGb / pc.ramTotalGb) * 100)];
         // one row per GPU (the integrated one counts its shared memory); named once there is more than one
         const gpus = gpusOf(D.state);
         for (const g of gpus) {
           const m = gpuMem(g);
           if (m) rows.push(meter(gpus.length > 1 ? `${m.label === 'VRAM' ? 'VRAM' : 'GPU'} · ${shortGpu(g.name)}` : m.label === 'VRAM' ? 'VRAM' : tp('GPU MEMORY'),
-            `${r1(m.used)} / ${Math.round(m.total)} GB`, (m.used / m.total) * 100, cssVar('--gpu')));
+            `${r1(m.used)} / ${Math.round(m.total)} ${tp('GB')}`, (m.used / m.total) * 100, cssVar('--gpu')));
         }
         const disks = h('div', 'disks', ...(pc.disks || []).map((dk) => meter(dk.name === '/' ? tp('DISK') : dk.name, Math.round((dk.usedGb / dk.totalGb) * 100) + '%', (dk.usedGb / dk.totalGb) * 100, '#94a3b8')));
         list.replaceChildren(...rows, disks);
@@ -459,14 +484,14 @@ W.quotas = {
     const getProviders = () => {
       if (Array.isArray(o.providers)) return o.providers;
       if (Array.isArray(cfg.codexBar?.providers)) return cfg.codexBar.providers;
-      return ['claude', 'codex', 'antigravity'];
+      return ['claude', 'codex', 'antigravity', 'grok'];
     };
 
     const isOverviewEnabled = () => o.showOverview === true;
 
     const getItems = () => {
       const want = getProviders();
-      const items = quotaProviders().filter((p) => want.includes(p.id));
+      const items = quotaProviders().filter((p) => quotaWanted(want, p.id));
       if (isOverviewEnabled() && D.quotas?.overview) {
         return [{ id: '__overview__', isOverview: true, overview: D.quotas.overview }, ...items];
       }
@@ -490,7 +515,7 @@ W.quotas = {
       card.appendChild(h('div', 'q-head',
         h('span', 'q-logo', emo('📊')),
         h('span', 'q-name', tp('Overview')),
-        h('span', 'q-plan', `${days}-day spend`),
+        h('span', 'q-plan', tpv('{n}-day spend', { n: days })),
         updStr ? h('span', 'q-upd', updStr) : null
       ));
       const summary = h('div', 'q-ov-hero',
@@ -541,7 +566,7 @@ W.quotas = {
           grid.appendChild(renderOverviewCard(p.overview, needsPaging && ps === 2 ? '1 1 0' : '1.5'));
           continue;
         }
-        const st = Q_STYLE[p.id] || { color: '#94a3b8', logo: '●' };
+        const st = Q_STYLE[p.id.split('@')[0]] || { color: '#94a3b8', logo: '●' };
         const card = h('div', 'q-card' + (p.limits.length >= 4 ? ' q-card-compact' : ''));
         card.style.setProperty('--q', st.color);
         card.style.flex = needsPaging && ps === 2 ? '1 1 0' : String(Math.max(1, p.limits.length) + 0.3);
@@ -654,8 +679,8 @@ W.sessions = {
     const tokens = (n) => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
     const statusText = (s) => s.status === 'busy' ? t('sess.working') : s.status === 'waiting' ? t('sess.waiting') : s.status === 'shell' ? t('sess.shell') : s.outcome === 'completed' ? t('sess.completed') : s.outcome === 'failed' ? t('sess.failed') : s.outcome === 'aborted' ? t('sess.aborted') : t('sess.idle');
     // The tool each session comes from: one glyph in the list, a glyph and a name in the details panel.
-    const toolIcon = (tool) => tool === 'claude' ? '✳' : tool === 'codex' ? '◎' : tool === 'cursor' ? '◆' : tool === 'opencode' ? '◈' : tool === 'antigravity' ? Q_STYLE.antigravity.logo : '◎';
-    const toolTitle = (tool) => tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'cursor' ? 'Cursor' : tool === 'opencode' ? 'OpenCode' : tool === 'antigravity' ? 'Antigravity' : 'Codex';
+    const toolIcon = (tool) => tool === 'claude' ? '✳' : tool === 'codex' ? '◎' : tool === 'cursor' ? '◆' : tool === 'opencode' ? '◈' : tool === 'antigravity' ? Q_STYLE.antigravity.logo : tool === 'grok' ? Q_STYLE.grok.logo : tool === 'workbuddy' ? '❖' : tool === 'pi' ? 'π' : '◎';
+    const toolTitle = (tool) => tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'cursor' ? 'Cursor' : tool === 'opencode' ? 'OpenCode' : tool === 'antigravity' ? 'Antigravity' : tool === 'grok' ? 'Grok' : tool === 'workbuddy' ? 'WorkBuddy' : tool === 'pi' ? 'Pi' : 'Codex';
     const ageText = (since) => Date.now() - since < 60_000 ? 'just now' : shortDur(Date.now() - since) + ' ago';
     // A session's title is the main label and the project folder goes under it: Claude Code sends it only while
     // Settings › Claude Code › "Show session titles on the phone" is on, OpenCode only while "Show OpenCode session
@@ -679,7 +704,9 @@ W.sessions = {
         h('div', full ? 'conv-text' : 'conv-text clamp', full ? m.text : clip(m.text, 500)));
       const render = () => {
         const prevList = box.querySelector('.conv-list');
-        const top = prevList ? prevList.scrollTop : null;
+        // a list read to its end follows the chat as new messages come in; one scrolled back stays where it is (#460)
+        const atEnd = !prevList || prevList.scrollHeight - prevList.scrollTop - prevList.clientHeight < 24;
+        const top = prevList && !atEnd ? prevList.scrollTop : null;
         labels = [];
         if (!data.enabled) {
           box.replaceChildren(h('p', 'session-note', tp('The conversation is off. Turn it on in Settings › Claude Code › Show the conversation on the phone.')));
@@ -704,14 +731,14 @@ W.sessions = {
           for (const m of [lastOf('user'), lastOf('assistant')]) if (m) kids.push(message(m, false));
         }
         if (messages.length) {
-          const toggle = h('button', 'conv-toggle', expanded ? 'Hide the conversation' : `Show the conversation (${messages.length})`);
+          const toggle = h('button', 'conv-toggle', expanded ? tp('Hide the conversation') : tpv('Show the conversation ({n})', { n: messages.length }));
           toggle.type = 'button';
           toggle.addEventListener('click', () => { haptic(); expanded = !expanded; render(); });
           kids.push(toggle);
         }
         box.replaceChildren(...kids);
         const list = box.querySelector('.conv-list');
-        if (list) list.scrollTop = top ?? list.scrollHeight; // a new view starts at the newest message
+        if (list) list.scrollTop = top ?? list.scrollHeight; // a new view starts at the newest message, and keeps up with it
       };
       const load = async () => {
         const mine = ++asked;
@@ -759,12 +786,14 @@ W.sessions = {
         ['Cached input', s.cachedInputTokens != null ? tokens(s.cachedInputTokens) : null],
         ['Reasoning output', s.reasoningTokens != null ? tokens(s.reasoningTokens) : null],
         ['Last input / context window', s.lastInputTokens != null && s.contextWindow ? `${tokens(s.lastInputTokens)} / ${tokens(s.contextWindow)}` : null],
+        // Pi (and friends) without a known context window: the current context size on its own
+        ['Context', s.lastInputTokens != null && s.contextWindow == null ? tokens(s.lastInputTokens) : null],
         ['Recent tool', s.lastTool],
       ];
       // a small label over each value, four to a row: the facts take one line instead of four
       panel.append(h('div', 'session-grid', rows.filter(([, value]) => value != null)
         .map(([label, value]) => h('div', 'session-cell', h('span', null, tp(label)), h('strong', null, value)))));
-      if (s.tool === 'codex' || (s.tool === 'antigravity' && s.totalTokens != null)) panel.append(h('p', 'session-note', tp('Token totals are for this local session, not your account allowance.')));
+      if (s.tool === 'codex' || s.tool === 'grok' || (s.tool === 'antigravity' && s.totalTokens != null) || (s.tool === 'pi' && s.totalTokens != null)) panel.append(h('p', 'session-note', tp('Token totals are for this local session, not your account allowance.')));
       if (s.tool === 'claude') stopConversation = conversationSection(panel, s);
       backdrop.append(panel);
       document.body.append(backdrop);
@@ -778,9 +807,9 @@ W.sessions = {
         const counts = { waiting: 0, busy: 0, shell: 0, idle: 0 };
         sessions.forEach((s) => (counts[s.status] = (counts[s.status] || 0) + 1));
         sum.textContent = [
-          counts.busy + counts.shell ? `${counts.busy + counts.shell} working` : '',
-          counts.waiting ? `${counts.waiting} waiting` : '',
-          counts.idle ? `${counts.idle} idle` : '',
+          counts.busy + counts.shell ? tpv('{n} working', { n: counts.busy + counts.shell }) : '',
+          counts.waiting ? tpv('{n} waiting', { n: counts.waiting }) : '',
+          counts.idle ? tpv('{n} idle', { n: counts.idle }) : '',
         ].filter(Boolean).join(' · ') || t('w.noOpenSessions');
         const sorted = [...sessions].sort((a, b) => (S_ORDER[a.status] ?? 9) - (S_ORDER[b.status] ?? 9) || b.since - a.since);
         const rows = sorted.length ? sorted.map((s) => {
@@ -861,10 +890,10 @@ W.processes = {
       const cpuPct = pc && pc.cpu != null ? Math.round(pc.cpu) : null;
       const ramPct = pc && pc.ramTotalGb ? Math.round((pc.ramUsedGb / pc.ramTotalGb) * 100) : null;
       const ramStr = ramPct != null && pc.ramUsedGb != null && pc.ramTotalGb != null
-        ? `Total RAM ${ramPct}% (${Math.round(pc.ramUsedGb)}/${Math.round(pc.ramTotalGb)} GB) · `
-        : (ramPct != null ? `Total RAM ${ramPct}% · ` : '');
+        ? tpv('Total RAM {pct}% ({used}/{total} GB) · ', { pct: ramPct, used: Math.round(pc.ramUsedGb), total: Math.round(pc.ramTotalGb) })
+        : (ramPct != null ? tpv('Total RAM {pct}% · ', { pct: ramPct }) : '');
       const loadPart = sort === 'cpu'
-        ? (cpuPct != null ? `Total CPU ${cpuPct}% · ` : '')
+        ? (cpuPct != null ? tpv('Total CPU {pct}% · ', { pct: cpuPct }) : '')
         : ramStr;
       sum.textContent = box.clientWidth > 380 ? loadPart + t('w.procsSummary', { n: data.total, apps: data.groupCount ?? data.groups.length }) : loadPart + t('w.procsSummaryShort', { n: data.total });
       if (grid.querySelector('.empty')) grid.replaceChildren();
@@ -976,7 +1005,7 @@ W.worldclock = {
           const [hm, ap] = fmtClock(+p.hour % 24, +p.minute).split(' ');
           it.t.replaceChildren(hm, ap ? h('span', 'wc-ap', ' ' + ap) : '');
           const zoneUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
-          const diffH = Math.round((zoneUtc - localUtc) / 360000) / 10;
+          const diffH = (zoneUtc - localUtc) / 3600000;
           const dayDiff = Math.round((Date.UTC(+p.year, +p.month - 1, +p.day) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
           const day = dayDiff > 0 ? t('time.tomorrow') : dayDiff < 0 ? t('time.yesterday') : t('time.today');
           it.s.textContent = diffH === 0 ? day : `${day}, ${diffH > 0 ? '+' : '−'}${Math.abs(diffH)}h`;
@@ -993,31 +1022,43 @@ W.calendar = {
     return {
       update() {
         const now = new Date();
-        const key = now.toDateString();
+        const firstDay = weekStartDay();
+        const key = now.toDateString() + '/' + firstDay;
         if (key === shown) return;
         shown = key;
         const y = now.getFullYear(), m = now.getMonth();
         const first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate();
-        const lead = (first.getDay() + 6) % 7; // Monday first
+        const lead = (first.getDay() - firstDay + 7) % 7;
         const weekday = new Intl.DateTimeFormat(LOCALE, { weekday: 'narrow' });
-        const cells = Array.from({ length: 7 }, (_, i) =>
-          h('span', 'cal-h' + (i > 4 ? ' we' : ''), weekday.format(new Date(2024, 0, i + 1)))); // Monday, Jan 1
+        const weekend = (day) => day === 0 || day === 6;
+        const cells = Array.from({ length: 7 }, (_, i) => {
+          const day = (firstDay + i) % 7;
+          return h('span', 'cal-h' + (weekend(day) ? ' we' : ''), weekday.format(new Date(2024, 0, 7 + day)));
+        });
         const prevDays = new Date(y, m, 0).getDate();
         for (let i = 0; i < lead; i++) cells.push(h('span', 'cal-d out', prevDays - lead + 1 + i));
         for (let d = 1; d <= days; d++) {
-          const wd = (lead + d - 1) % 7;
-          cells.push(h('span', 'cal-d' + (d === now.getDate() ? ' today' : '') + (wd > 4 ? ' we' : ''), d));
+          const wd = (first.getDay() + d - 1) % 7;
+          cells.push(h('span', 'cal-d' + (d === now.getDate() ? ' today' : '') + (weekend(wd) ? ' we' : ''), d));
         }
         const total = Math.ceil(cells.length / 7) * 7;
         for (let d = 1; cells.length < total; d++) cells.push(h('span', 'cal-d out', d));
         const grid = h('div', 'cal', cells);
         grid.style.gridTemplateRows = `auto repeat(${total / 7 - 1}, 1fr)`;
         box.replaceChildren(h('div', 'w-title', now.toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' }),
-          h('span', 'w-sub', tp('Week ') + isoWeek(now))), grid);
+          h('span', 'w-sub', tp('Week ') + weekNumber(now, firstDay))), grid);
       },
     };
   },
 };
+
+function weekNumber(d, firstDay) {
+  if (firstDay === 1) return isoWeek(d);
+  const start = Date.UTC(d.getFullYear(), 0, 1);
+  const leadingDays = (new Date(start).getUTCDay() - firstDay + 7) % 7;
+  const elapsed = (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - start) / 86400000;
+  return 1 + Math.floor((elapsed + leadingDays) / 7);
+}
 
 export function isoWeek(d) {
   const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -1044,6 +1085,37 @@ export function parsePomodoro(text) {
     if (steps.length > 48) return { steps: null, bad: 'more than 48 steps' };
   }
   return { steps: steps.length ? steps : null, bad: null };
+}
+
+// ---------------------------------------------------------------- focus history (#350)
+// Finished Pomodoro focus minutes per local day, shared by every timer on the panel and shown by the Focus history
+// widget. Kept only while that widget is on the panel, and only for the last seven days.
+const FOCUS_KEY = 'focus-history';
+const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/** The last seven days, oldest first, today last (at noon, so a daylight-saving change can't skip or repeat a day). */
+function lastWeek() {
+  const noon = new Date(); noon.setHours(12, 0, 0, 0);
+  return Array.from({ length: 7 }, (_, i) => { const d = new Date(noon); d.setDate(noon.getDate() - 6 + i); return d; });
+}
+/** A Focus history widget the panel shows: on a page that is on, on its own or as a card of a Smart Stack that is on. */
+function focusHistoryShown() {
+  return (cfg.pages || []).some((p) => p.enabled !== false && (p.widgets || []).some((w) => w.type === 'focushistory'
+    || (w.type === 'stack' && parseWidgets(w.options?.widgets).some((c) => c.type === 'focushistory'))));
+}
+/** The stored minutes of the last seven days only; days before them are dropped from storage too. */
+function focusWeek() {
+  const keep = new Set(lastWeek().map(dayKey)), old = store.get(FOCUS_KEY, null), hist = {};
+  if (!old || typeof old !== 'object') return hist;
+  for (const [k, v] of Object.entries(old)) if (keep.has(k)) hist[k] = +v || 0;
+  if (Object.keys(hist).length !== Object.keys(old).length) store.set(FOCUS_KEY, hist);
+  return hist;
+}
+/** Adds a finished focus step to the day it ended, by the phone's clock. */
+function addFocusMinutes(endedAt, minutes) {
+  const hist = focusWeek(), k = dayKey(new Date(endedAt));
+  if (!new Set(lastWeek().map(dayKey)).has(k)) return;
+  hist[k] = (hist[k] || 0) + minutes;
+  store.set(FOCUS_KEY, hist);
 }
 
 W.pomodoro = {
@@ -1085,13 +1157,18 @@ W.pomodoro = {
     const dial = h('div', 'g-dial'), time = h('div', 'g-val'), phase = h('div', 'g-label'), count = h('div', 'g-sub');
     const play = labelled(h('button', 'pb main', icon('play')), t('w.a.start')), reset = labelled(h('button', 'pb', icon('rotate-ccw')), t('w.a.restart')), skip = labelled(h('button', 'pb', icon('skip-forward')), t('w.a.skip'));
     dial.append(time);
-    box.append(dial, phase, count, h('div', 'pomo-btns', reset, play, skip));
+    box.append(h('div', 'timer-layout', dial, phase, count, h('div', 'pomo-btns', reset, play, skip)));
     let svg = null;
     const total = () => plan[st.step].ms;
     const remaining = () => (st.endsAt ? Math.max(0, st.endsAt - Date.now()) : st.left);
     /** Moves to the next step; returns true when the last round of the sequence is over (the timer then stops). */
     const advance = (manual) => {
-      if (plan[st.step].kind === 'focus' && !manual) st.count++;
+      if (plan[st.step].kind === 'focus' && !manual) {
+        st.count++;
+        // for the Focus history widget: the day the step ended, so one across midnight, or one that ended while the panel
+        // was closed, counts on the day it finished
+        if (focusHistoryShown()) addFocusMinutes(st.endsAt || Date.now(), plan[st.step].ms / 60_000);
+      }
       st.step++;
       if (st.step >= plan.length) { st.step = 0; st.round = (st.round || 0) + 1; }
       st.left = total();
@@ -1118,8 +1195,8 @@ W.pomodoro = {
         buzz(finished ? '0,200,120,200,120,200,120,600' : '0,200,120,200,120,400');
         if (o.sound === true) chime(o.soundVolume, finished);
         const next = plan[st.step].kind;
-        toast(finished ? 'Sequence finished, well done'
-          : next === 'long' ? 'Time for a long break' : next === 'break' ? 'Time for a break'
+        toast(finished ? tp('Sequence finished, well done')
+          : next === 'long' ? tp('Time for a long break') : next === 'break' ? tp('Time for a break')
             : was === 'focus' ? tp('Next focus session') : tp('Back to focus'), 'ok', '🍅 Pomodoro', 5);
       }
       const left = remaining();
@@ -1133,8 +1210,8 @@ W.pomodoro = {
       time.textContent = fmtTime(left + 999);
       phase.textContent = label();
       const tomatoes = st.count ? '🍅'.repeat(Math.min(st.count, 6)) + (st.count > 6 ? ` ×${st.count}` : '') : t('w.noSessionsToday');
-      count.replaceChildren(rich(custom.bad ? `Sequence not understood: "${custom.bad}"`
-        : rounds > 1 ? `Round ${(st.round || 0) + 1}/${rounds} · ${tomatoes}` : tomatoes));
+      count.replaceChildren(rich(custom.bad ? tpv('Sequence not understood: "{seq}"', { seq: custom.bad })
+        : rounds > 1 ? tpv('Round {n}/{total}', { n: (st.round || 0) + 1, total: rounds }) + ` · ${tomatoes}` : tomatoes));
       // the tomato icons are decorative (aria-hidden), so say the count in words for screen readers
       if (st.count && !custom.bad) count.append(h('span', 'sr-only', ' ' + t('w.a.sessionsToday', { n: st.count })));
       play.replaceChildren(icon(st.endsAt ? 'pause' : 'play'));
@@ -1157,6 +1234,100 @@ W.pomodoro = {
     });
     skip.addEventListener('click', () => { haptic(); advance(true); render(); });
     return { update: render };
+  },
+};
+
+W.focushistory = {
+  needs: ['tick'],
+  create(box) {
+    const total = h('span', 'fh-total'), line = h('div', 'fh-line'), plot = h('div', 'fh-plot'), days = h('div', 'fh-days');
+    const guide = h('div', 'fh-guide'), tip = h('div', 'fh-tip');
+    guide.hidden = tip.hidden = true;
+    line.setAttribute('role', 'img');
+    line.append(plot, guide, tip);
+    box.append(h('div', 'w-title', h('span', 'fh-name', t('w.focusHistTitle')), total), line, days);
+    let shown = '', week = [], mins = [], sel = -1, timer = null;
+    const weekday = (d) => new Intl.DateTimeFormat(LOCALE, { weekday: 'short' }).format(d);
+    /** Marks one day with a line through its point and its minutes on top; -1 clears the mark. */
+    const select = (i) => {
+      sel = i;
+      guide.hidden = tip.hidden = i < 0;
+      [...days.children].forEach((s, j) => { s.classList.toggle('sel', j === i); s.setAttribute('aria-pressed', String(j === i)); });
+      if (i < 0) return;
+      const x = ((i + 0.5) / 7) * 100;
+      guide.style.left = `${x}%`;
+      tip.style.left = `clamp(48px, ${x}%, calc(100% - 48px))`; // the label stays inside the card at either end
+      tip.textContent = `${weekday(week[i])} · ${t('w.focusMin', { n: mins[i] })}`;
+    };
+    // a tap or a hold on the line or a weekday shows that day; a hold keeps it while the finger stays, and it clears a
+    // moment after the finger lifts. A second tap on the same day closes it. A finger that moves is a swipe: nothing is
+    // marked and nothing is prevented, so the page still turns.
+    let down = null, holdTimer = null;
+    const release = () => { clearTimeout(timer); timer = setTimeout(() => select(-1), 4000); };
+    const end = (e) => {
+      if (!down) return;
+      const p = down;
+      down = null;
+      clearTimeout(holdTimer);
+      document.removeEventListener('pointermove', move);
+      if (e.type === 'pointercancel') { if (p.held) select(-1); return; } // the browser took the touch for a swipe
+      if (!p.held) { if (p.i === sel) { clearTimeout(timer); select(-1); return; } haptic(); select(p.i); }
+      release();
+    };
+    const move = (e) => {
+      if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10) {
+        if (down.held) select(-1);
+        down = null;
+        clearTimeout(holdTimer);
+        document.removeEventListener('pointermove', move);
+      }
+    };
+    const press = (e) => {
+      const r = line.getBoundingClientRect();
+      const i = Math.min(6, Math.max(0, Math.floor(((e.clientX - r.left) / r.width) * 7)));
+      down = { x: e.clientX, y: e.clientY, i, held: false };
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => { if (down) { down.held = true; clearTimeout(timer); haptic(); select(i); } }, 250);
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', end, { once: true });
+      document.addEventListener('pointercancel', end, { once: true });
+    };
+    line.addEventListener('pointerdown', press);
+    days.addEventListener('pointerdown', press);
+    // a keyboard (Enter or Space on a weekday) does what a tap does; a finger's click is handled on pointerdown above
+    days.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b || e.detail !== 0) return;
+      const i = [...days.children].indexOf(b);
+      if (i === sel) { clearTimeout(timer); select(-1); } else { select(i); release(); }
+    });
+    return {
+      update() {
+        week = lastWeek();
+        const keys = week.map(dayKey), hist = keys[6] === shown.slice(0, 10) ? store.get(FOCUS_KEY, {}) || {} : focusWeek();
+        mins = keys.map((k) => Math.round(+hist[k] || 0));
+        const sig = keys[6] + '|' + mins.join(',') + '|' + LOCALE;
+        if (sig === shown) return;
+        shown = sig;
+        // 0 at the bottom, so a quiet week stays low; each point sits above its weekday, today last with a dot
+        const max = Math.max(...mins, 1);
+        const pts = mins.map((m, i) => [r1(((i + 0.5) / 7) * 100), r1(37 - (m / max) * 34)]);
+        // numbers only, as with ringSvg; vector-effect keeps the line and the dot round when the box is stretched
+        plot.innerHTML = '<svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">'
+          + `<polyline points="${pts.map((p) => p.join(',')).join(' ')}" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`
+          + `<path d="M${pts[6][0]} ${pts[6][1]}h0" stroke="currentColor" stroke-width="8" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
+        line.dataset.minutes = mins.join(',');
+        line.setAttribute('aria-label', t('w.a.focusWeek', { list: week.map((d, i) => `${weekday(d)} ${mins[i]}`).join(', ') }));
+        days.replaceChildren(...week.map((d, i) => {
+          const b = h('button', i === 6 ? 'today' : null, weekday(d));
+          b.type = 'button';
+          b.setAttribute('aria-label', `${weekday(d)} · ${t('w.focusMin', { n: mins[i] })}`);
+          return b;
+        }));
+        total.textContent = t('w.focusMin', { n: mins.reduce((a, b) => a + b, 0) });
+        select(sel); // a marked day keeps its mark, with the new minutes
+      },
+    };
   },
 };
 
@@ -1278,6 +1449,55 @@ W.note = {
       ta.focus();
     });
     return {};
+  },
+};
+
+// Page buttons: one button per page (the ticked ones, or all), the page you are on highlighted. A tap goes there the
+// same way a rule or a webhook does.
+W.pagebuttons = {
+  bare: true, needs: ['tick'],
+  create(box, { o }) {
+    const list = h('div', 'pgb');
+    if (o.title) box.append(h('div', 'w-title', o.title));
+    box.append(list);
+    let shown = '';
+    const render = () => {
+      const ids = Array.isArray(o.ids) ? o.ids : [];
+      let items = pages.map((p, i) => ({ p, i })).filter(({ p }) => !ids.length || ids.includes(p.id));
+      if (!items.length) items = pages.map((p, i) => ({ p, i })); // the ticked pages are gone: show them all
+      const key = items.map(({ p, i }) => `${i}:${p.id}:${p.icon || ''}:${p.title}`).join('|');
+      if (key !== shown) {
+        shown = key;
+        list.replaceChildren(...items.map(({ p, i }) => {
+          const b = h('button', 'pgb-b', p.icon ? h('span', 'pgb-i', rich(p.icon)) : null, h('span', 'pgb-t', p.title || `${i + 1}`));
+          b.type = 'button';
+          b.dataset.i = i;
+          b.setAttribute('aria-label', `${i + 1} · ${p.title || ''}`);
+          b.onclick = (e) => { e.stopPropagation(); haptic(); gotoPageRef(i + 1); };
+          return b;
+        }));
+      }
+      list.querySelectorAll('.pgb-b').forEach((b) => b.classList.toggle('on', +b.dataset.i === curPage));
+      fit();
+    };
+    // columns for the widget's shape: buttons about twice as wide as tall, with few empty cells
+    let fitted = '';
+    const fit = () => {
+      const n = list.children.length, W = list.clientWidth, H = list.clientHeight;
+      if (!n || !W || !H) return;
+      let best = 1, score = Infinity;
+      for (let cols = 1; cols <= n; cols++) {
+        const rows = Math.ceil(n / cols);
+        const s = Math.abs(Math.log((W / cols) / (H / rows) / 2)) + 0.15 * (cols * rows - n);
+        if (s < score) { score = s; best = cols; }
+      }
+      const value = `repeat(${best}, minmax(0, 1fr))`;
+      if (value !== fitted) { fitted = value; list.style.gridTemplateColumns = value; }
+    };
+    const watch = typeof ResizeObserver === 'function' ? new ResizeObserver(fit) : null;
+    watch?.observe(list);
+    render();
+    return { update: render, destroy() { watch?.disconnect(); } };
   },
 };
 

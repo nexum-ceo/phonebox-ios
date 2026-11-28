@@ -1,6 +1,6 @@
 # PhoneBox für iPhone
 
-iOS-Version der PhoneBox-Android-App (https://github.com/ersinkoc/phonebox, MIT), gebaut für das iPhone 13
+iOS-Version der PhoneBox-Android-App (https://github.com/ersinkoc/phonebox, MIT, aktuell Version **0.9.32**), gebaut für das iPhone 13
 (läuft auf jedem iPhone mit iOS 16 oder neuer).
 
 Die Oberfläche ist **1:1 dieselbe**: Das komplette Panel der Android-App (`PhoneBox/Resources/www`, 129 Widgets,
@@ -137,5 +137,12 @@ Die anderen Befehle sind `--start`, `--restart` und `--status`.
 python3 tools/generate.py
 ```
 
-Ein neueres Panel aus dem Android-Repo übernehmen: `android/app/src/main/assets/www` nach
-`PhoneBox/Resources/www` kopieren. Danach `VERSION` in `tools/generate.py` anpassen und das Skript erneut ausführen.
+Ein neueres Panel aus dem Android-Repo übernehmen: das Release-Archiv laden (`…/archive/refs/tags/vX.Y.Z.tar.gz`),
+`android/app/src/main/assets/www` nach `PhoneBox/Resources/www` und `android/app/src/main/res/values*` nach
+`upstream-android-res/` kopieren, `VERSION` in `tools/generate.py` anpassen und das Skript erneut ausführen. Neue
+Methoden der Android-Bridge (`MainActivity.kt`, `@JavascriptInterface`) muss die Hülle nachbauen, sonst fehlt die
+Funktion auf dem iPhone (das Panel fragt sie optional ab).
+
+**Nur Android, auf dem iPhone nicht verfügbar (seit 0.9.32):** Benachrichtigungen und Zwischenablage zum Mac,
+„Teilen mit Mac“ und Handy-Medien (Wiedergabe, Lautstärke des Handys). Sie brauchen Android-Rechte, die iOS Apps nicht
+gibt; das Panel blendet sie auf dem iPhone aus.

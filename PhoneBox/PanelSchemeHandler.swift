@@ -17,9 +17,11 @@ final class PanelSchemeHandler: NSObject, WKURLSchemeHandler {
 
     private static let panelHeader = "X-PhoneBox-Panel"
     private static let readOnlyImages: Set<String> = [
-        "/agent/api/art", "/agent/api/procs/icon", "/agent/api/controls/radio-logo", "/agent/api/apps/icon",
-        "/agent/api/discord/img", "/agent/api/shortcuts/icon", "/agent/api/steam/cover",
+        "/agent/api/art", "/agent/api/controls/radio-logo", "/agent/api/apps/icon",
+        "/agent/api/discord/img", "/agent/api/shortcuts/icon", "/agent/api/steam/cover", "/agent/api/wallpaper",
     ]
+    /// The only reply headers of the agent that are passed on (as in the Android app).
+    private static let passedHeaders: Set<String> = ["content-security-policy", "x-content-type-options"]
 
     let link: AgentLink
     /// The tasks WebKit has started and not cancelled. Holding the task object keeps its address from being reused by a new
@@ -51,12 +53,13 @@ final class PanelSchemeHandler: NSObject, WKURLSchemeHandler {
         active[ObjectIdentifier(task)] = nil
     }
 
-    private func respond(_ task: WKURLSchemeTask, status: Int, mime: String, charset: String? = nil, body: Data) {
+    private func respond(_ task: WKURLSchemeTask, status: Int, mime: String, charset: String? = nil, body: Data, extra: [String: String] = [:]) {
         guard live(task), let url = task.request.url else { return }
         if status >= 400 && status != 503 { NSLog("PhoneBox %d %@", status, url.path) }
         var headers = ["Content-Type": charset.map { "\(mime); charset=\($0)" } ?? mime,
                        "Content-Length": String(body.count), "Cache-Control": "no-store"]
         if url.path.hasPrefix("/assets/") { headers["Access-Control-Allow-Origin"] = "*" }
+        for (name, value) in extra { headers[name] = value }
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
         task.didReceive(response)
         task.didReceive(body)
@@ -113,7 +116,15 @@ final class PanelSchemeHandler: NSObject, WKURLSchemeHandler {
                 var charset: String?
                 if let range = ct.range(of: "charset=") { charset = String(ct[range.upperBound...]).trimmingCharacters(in: .whitespaces) }
                 let status = (100...599).contains(reply.code) && !(300...399).contains(reply.code) ? reply.code : 502
-                self.respond(task, status: status, mime: mime, charset: charset, body: reply.body)
+                var extra = reply.headers.filter { Self.passedHeaders.contains($0.key.lowercased()) }
+                // an image of the agent may not run anything if it turns out to be a document
+                if Self.readOnlyImages.contains(task.request.url?.path ?? "") {
+                    if !extra.keys.contains(where: { $0.lowercased() == "content-security-policy" }) {
+                        extra["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+                    }
+                    if !extra.keys.contains(where: { $0.lowercased() == "x-content-type-options" }) { extra["X-Content-Type-Options"] = "nosniff" }
+                }
+                self.respond(task, status: status, mime: mime, charset: charset, body: reply.body, extra: extra)
             }
         }
     }

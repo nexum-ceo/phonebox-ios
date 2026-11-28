@@ -1,7 +1,8 @@
 import { h, haptic, t, tp } from '../main.js';
 import { W } from '../registry.js';
 
-function parseWidgets(raw) {
+/** The cards a Smart Stack shows: its list parsed, without nested stacks or commands, and without cards turned off. */
+export function parseWidgets(raw) {
   let list = [];
   if (Array.isArray(raw)) {
     list = raw;
@@ -103,7 +104,7 @@ W.stack = {
           subBox.replaceChildren(h('div', 'empty', `${item.type}: ${err.message}`));
         }
       } else {
-        subBox.replaceChildren(h('div', 'empty', `Unknown widget: ${item.type}`));
+        subBox.replaceChildren(h('div', 'empty', tp('Unknown widget: ') + item.type));
       }
 
       // Children can narrow their needs for their current options.

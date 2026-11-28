@@ -24,7 +24,11 @@ export async function deckCommand(kind, values = {}) {
   for (const [key, value] of Object.entries(values)) if (value != null) query.set(key, String(value));
   invalidateDeckState();
   const result = await api(`/controls/command/${encodeURIComponent(kind)}?${query}`, 'POST', 20000);
-  if (!result.ok) throw new Error(result.error || tp('Control is unavailable'));
+  if (!result.ok) {
+    // the whole answer stays on the error, for a control that reports more than one outcome (mics-camera-off)
+    const error = new Error(result.error || tp('Control is unavailable')); error.result = result;
+    throw error;
+  }
   invalidateDeckState();
   if (kind === 'action' || kind === 'sound-stop' || kind === 'media') {
     api('/state' + (evSeq != null ? '?ev=' + evSeq : '')).then(s => {
@@ -33,7 +37,8 @@ export async function deckCommand(kind, values = {}) {
   }
   return result;
 }
-const fail = error => toast(error?.message || tp('The computer did not answer'), 'err');
+// the Plex page-gate messages are translated on every path, also when a deck control (a playlist) is refused
+const fail = error => toast(plexText(error?.message) || tp('The computer did not answer'), 'err');
 const button = (label, click, name = label) => {
   const b = h('button', 'deck-button', label); b.type = 'button'; b.setAttribute('aria-label', name);
   b.onclick = async () => { haptic(); b.disabled = true; try { await click(); } catch (e) { fail(e); } finally { b.disabled = false; } };
@@ -48,6 +53,30 @@ function reconcile(root, nodes) {
   [...root.children].filter(node => !nodes.includes(node)).forEach(node => node.remove());
 }
 function empty(root, text) { root.replaceChildren(h('div', 'deck-empty', tp(text))); }
+// "Mics off, camera off" (#387): what happened to the microphones and to the OBS virtual camera, in the panel's
+// language. A camera OBS did not stop is never shown as off.
+function micsCameraText(r) {
+  const mics = r.mics === 'muted' ? tp('Microphones muted') : r.mics === 'pending' ? tp('A microphone could not be muted; retrying')
+    : tp('No microphone could be muted');
+  const camera = r.camera === 'stopped' ? tp('OBS virtual camera stopped') : r.camera === 'off' ? tp('OBS virtual camera was already off')
+    : r.camera === 'not-connected' ? tp('Camera not turned off: OBS is not connected') : tp('Camera not turned off: OBS did not stop the virtual camera');
+  return mics + ' · ' + camera;
+}
+async function micsCameraOff() {
+  let result;
+  try { result = await deckCommand('mics-camera-off'); }
+  catch (e) { if (!e.result?.camera) throw e; toast(micsCameraText(e.result), 'err', '', 6); return; }
+  toast(micsCameraText(result), 'ok', '', 4);
+}
+// "Unmute microphones" (#645): opens again only the microphones the emergency mute or "Mics off" closed
+async function micsOn() {
+  let r;
+  try { r = await deckCommand('mics-on'); }
+  catch (e) { if (!e.result?.mics) throw e; r = e.result; }
+  const text = r.mics === 'unmuted' ? tp('Microphones unmuted') : r.mics === 'none' ? tp('No microphone muted by PhoneBox to unmute')
+    : tp('A microphone could not be unmuted');
+  toast(text, r.ok ? 'ok' : 'err', '', 4);
+}
 function slider(label, send, max = 100) {
   const input = h('input', 'deck-slider'); input.type = 'range'; input.min = 0; input.max = max; input.step = 1;
   input.setAttribute('aria-label', label);
@@ -64,6 +93,16 @@ function slider(label, send, max = 100) {
 }
 function meter(value) { const e = h('div', 'deck-meter', h('i')); e.firstChild.style.transform = `scaleX(${Math.max(0, Math.min(1, value || 0))})`; return e; }
 
+// The device list, the microphone, per-app volume and switching devices use Windows Core Audio. On Linux and macOS the
+// agent reports only the system output, so these say so instead of showing an empty list (#613).
+const onlyOnWindows = () => !!D.state?.os && D.state.os !== 'windows';
+const WINDOWS_ONLY = {
+  apps: () => tp('Per-app volume is only on Windows for now'),
+  app: () => tp('Per-app volume is only on Windows for now'),
+  mic: () => tp('Microphone control is only on Windows for now'),
+  balance: () => tp('Balance is only on Windows for now'),
+};
+
 function audioView(box, options, mode) {
   const root = h('div', `deck-list ${options.layout === 'vertical' ? 'deck-vertical' : ''}`);
   box.append(root);
@@ -77,7 +116,11 @@ function audioView(box, options, mode) {
     if (options.application) { const want = options.application.toLowerCase(); items = items.filter(d => [d.name, d.processName].some(n => n?.toLowerCase().includes(want))); }
     if (mode === 'mic' && !options.device) items = items.filter(d => d.default);
     if (mode === 'balance') items = items.filter(d => d.direction === 'output' && d.channels >= 2 && (options.device || d.default));
-    if (!items.length) { empty(root, mode === 'app' ? tp('Start the selected application and play audio') : tp('No matching audio devices')); return; }
+    if (!items.length) {
+      empty(root, onlyOnWindows() && WINDOWS_ONLY[mode] ? WINDOWS_ONLY[mode]()
+        : mode === 'app' ? tp('Start the selected application and play audio') : tp('No matching audio devices'));
+      return;
+    }
     const nodes = items.map(item => {
       let row = rows.get(item.id);
       if (!row) {
@@ -85,14 +128,14 @@ function audioView(box, options, mode) {
         const name = h('div', 'deck-channel-name', item.name);
         const signal = meter(item.peak);
         const kind = mode === 'app' || mode === 'apps' ? 'session' : 'device';
-        const controls = slider(item.name + ' volume', value => deckCommand(kind, { id: item.id, value }));
+        const controls = slider(tpv('{name} volume', { name: item.name }), value => deckCommand(kind, { id: item.id, value }));
         const mute = button('', () => deckCommand(kind, { id: item.id, muted: !row.item.muted }), 'Mute ' + item.name);
         mute.classList.add('deck-mute');
         const balance = [];
         el.append(name, signal);
         if (mode === 'balance') {
-          const left = slider('Left channel', value => deckCommand('device', { id: item.id, op: 'left', value }));
-          const right = slider('Right channel', value => deckCommand('device', { id: item.id, op: 'right', value }));
+          const left = slider(tp('Left channel'), value => deckCommand('device', { id: item.id, op: 'left', value }));
+          const right = slider(tp('Right channel'), value => deckCommand('device', { id: item.id, op: 'right', value }));
           left.set(item.volume); right.set(item.volume);
           balance.push(left, right);
           el.append(h('label', '', 'L', left.input, left.number), h('label', '', 'R', right.input, right.number));
@@ -129,6 +172,11 @@ function chooser(box, options, which) {
   }
   let signature = '';
   return data => {
+    // the system output is listed on Linux and macOS too, but only Windows can switch the default device
+    if ((which === 'input' || which === 'output') && onlyOnWindows()) {
+      if (signature !== 'windows-only') { signature = 'windows-only'; empty(list, tp('Switching audio devices is only on Windows for now')); }
+      return;
+    }
     const items = which === 'media' ? data.media || [] : which === 'plans' ? data.powerPlans || [] : (data.audio?.devices || []).filter(d => d.direction === which);
     const role = options.role || 'all';
     const roleIndex = {console:0,media:1,communications:2}[role];
@@ -186,7 +234,8 @@ function hold(box, options, power = null) {
     render(data) {
       device = options.device || data.audio?.devices?.find(d => d.direction === 'input' && d.default)?.id;
       b.disabled = power ? !data.allowPower : !device;
-      if (b.disabled) status.textContent = power ? tp('Enable power controls in desktop settings') : tp('No microphone is available');
+      if (b.disabled) status.textContent = power ? tp('Enable power controls in desktop settings')
+        : onlyOnWindows() ? tp('Microphone control is only on Windows for now') : tp('No microphone is available');
     },
     destroy() { end(); observer?.disconnect(); window.removeEventListener('blur', end); document.removeEventListener('visibilitychange', visibility); },
   };
@@ -195,15 +244,15 @@ function hold(box, options, power = null) {
 function mediaView(box, options, mode) {
   const title = h('div', 'deck-track'), source = h('div', 'deck-caption'); box.append(title, source);
   let current = null;
-  const call = (op, value) => current ? deckCommand('media', { id: current.id, op, value }) : Promise.reject(new Error('No media player selected'));
+  const call = (op, value) => current ? deckCommand('media', { id: current.id, op, value }) : Promise.reject(new Error(t('w.noMediaSelected')));
   const controls = h('div', 'deck-toolbar'); box.append(controls);
   let seek = null, shuffle = null, repeat = null;
-  if (mode === 'seek') { seek = slider('Playback position', value => call('seek', value)); box.append(seek.input, seek.number); }
+  if (mode === 'seek') { seek = slider(tp('Playback position'), value => call('seek', value)); box.append(seek.input, seek.number); }
   else if (mode === 'modes') {
-    shuffle = button('Shuffle', () => call('shuffle', current.shuffle ? 0 : 1));
-    repeat = button('Repeat', () => call('repeat', current.repeat === 'None' ? 1 : current.repeat === 'Track' ? 2 : 0));
+    shuffle = button(tp('Shuffle'), () => call('shuffle', current.shuffle ? 0 : 1));
+    repeat = button(tp('Repeat'), () => call('repeat', current.repeat === 'None' ? 1 : current.repeat === 'Track' ? 2 : 0));
     controls.append(shuffle, repeat);
-  } else controls.append(button(icon('skip-back'), () => call('prev'), 'Previous track'), button(icon('play'), () => call('playpause'), 'Play or pause'), button(icon('skip-forward'), () => call('next'), 'Next track'));
+  } else controls.append(button(icon('skip-back'), () => call('prev'), tp('Previous track')), button(icon('play'), () => call('playpause'), tp('Play or pause')), button(icon('skip-forward'), () => call('next'), tp('Next track')));
   return data => {
     current = selectedPlayer(data, options);
     title.textContent = current?.title || t('w.noMediaSelected'); source.textContent = current?.name || tp('Choose a source in Media sources');
@@ -220,7 +269,7 @@ const groups = {
   'display-profiles': ['display-profile'], 'focus-profile': ['focus', 'macro'],
   'meeting-controls': ['meeting'], 'discord-controls': ['discord'], 'meeting-profile': ['meeting', 'macro'],
   'task-runner': ['task'], 'dev-servers': ['server'], services: ['service'], 'workflow-runner': ['workflow'], 'script-pad': ['task', 'shortcut'],
-  soundboard: ['sound'], radio: ['radio'], playlists: ['playlist'], 'audio-routing': ['audio-route'],
+  soundboard: ['sound'], radio: ['radio'], playlists: ['playlist'], 'plex-playlists': ['plex-playlist'], 'audio-routing': ['audio-route'],
   'external-mixer': ['mixer', 'mixer-mute'], 'midi-pad': ['midi'], 'osc-pad': ['osc'],
 };
 function actionsView(box, options, type) {
@@ -504,7 +553,7 @@ function mixerView(box,options){
         if(item.kind==='mixer'){
           row.slider=slider(item.name+' gain',value=>deckCommand('action',{id:item.id,value}),12);row.slider.input.min=-60;
           el.append(row.slider.input,row.slider.number);
-        }else {row.toggle=button('Toggle',()=>deckCommand('action',{id:item.id,value:Number(row.item.state)>0?0:1}));el.append(row.toggle);}
+        }else {row.toggle=button(tp('Toggle'),()=>deckCommand('action',{id:item.id,value:Number(row.item.state)>0?0:1}));el.append(row.toggle);}
         rows.set(item.id,row);
       }
       row.item=item;row.label.textContent=item.name;row.state.textContent=item.available===false?item.state || t('w.notConnected'):'';
@@ -522,7 +571,7 @@ function listening(box) {
   const toggle = button(t('w.listen'), async () => {
     if (ctl) { stop(); return; }
     const Audio = window.AudioContext || window.webkitAudioContext;
-    if (!Audio || !window.ReadableStream) throw new Error('This WebView does not support live audio');
+    if (!Audio || !window.ReadableStream) throw new Error(tp('This WebView does not support live audio'));
     context = new Audio(); await context.resume(); ctl = new AbortController(); toggle.textContent = t('w.stopListening');
     state.textContent = t('w.listeningOn');
     const own = ctl;
@@ -530,19 +579,19 @@ function listening(box) {
     (async () => {
       try {
         const response = await fetch(API + '/controls/listen', { headers: PANEL_HEADERS, signal: own.signal });
-        if (!response.ok || !response.body) throw new Error('Listening is unavailable');
+        if (!response.ok || !response.body) throw new Error(tp('Listening is unavailable'));
         const reader = response.body.getReader(), decoder = new TextDecoder(); let text = '';
         while (ctl === own) {
           const chunk = await reader.read(); if (chunk.done) break;
           text += decoder.decode(chunk.value, { stream: true });
-          if (text.length > 1e6) throw new Error('Invalid audio stream');
+          if (text.length > 1e6) throw new Error(tp('Invalid audio stream'));
           let newline;
           while ((newline = text.indexOf('\n')) >= 0) {
             const packet = JSON.parse(text.slice(0, newline)); text = text.slice(newline + 1);
             if (!packet.data || !context) continue;
             const raw = Uint8Array.from(atob(packet.data), c => c.charCodeAt(0)); const view = new DataView(raw.buffer);
             const bytes = packet.bits / 8, frames = raw.length / bytes / packet.channels;
-            if (!Number.isInteger(frames) || ![16, 32].includes(packet.bits)) throw new Error('Unsupported audio format');
+            if (!Number.isInteger(frames) || ![16, 32].includes(packet.bits)) throw new Error(tp('Unsupported audio format'));
             const buffer = context.createBuffer(packet.channels, frames, packet.rate);
             for (let channel = 0; channel < packet.channels; channel++) {
               const samples = buffer.getChannelData(channel);
@@ -579,7 +628,13 @@ export function registerDeckWidget(type, title, mode = type) {
       else if (mode === 'ptt') component = hold(box, o);
       else if (mode === 'listen') component = listening(box);
       else if (['remote', 'seek', 'modes'].includes(mode)) render = mediaView(box, o, mode);
-      else if (mode === 'panic') box.append(button(tp('Mute audio + microphones'), () => deckCommand('panic')));
+      else if (mode === 'panic' || mode === 'mics-camera-off') {
+        box.append(mode === 'panic' ? button(tp('Mute audio + microphones'), () => deckCommand('panic'))
+          : button(tp('Mute microphones + stop OBS camera'), micsCameraOff));
+        // shown only while there is something to open again, so the widget looks as before until it is used
+        const unmute = button(tp('Unmute microphones'), micsOn); unmute.hidden = true; box.append(unmute);
+        render = data => { unmute.hidden = !(data.micsToUnmute > 0); };
+      }
       else if (mode === 'desktops') box.append(button(tp('← Desktop'), () => deckCommand('desktop', { value: -1 })), button(tp('Desktop →'), () => deckCommand('desktop', { value: 1 })));
       else if (mode === 'system') box.append(button(tp('Lock'), () => deckCommand('lock')), button(tp('Display off'), () => deckCommand('monitor-off')));
       else if (mode === 'power') {
@@ -587,7 +642,7 @@ export function registerDeckWidget(type, title, mode = type) {
         const components = ['sleep', 'restart', 'shutdown'].map(action => { const item = h('div', 'deck-power-item'); group.append(item); return hold(item, o, action); });
         component = { render(data) { components.forEach(c => c.render(data)); }, destroy() { components.forEach(c => c.destroy()); } };
       } else if (mode === 'duck') {
-        let enabled = false; const b = button('Enable ducking', () => deckCommand('duck', { op: enabled ? 'off' : 'on', value: o.level ?? 25 })); box.append(b);
+        let enabled = false; const b = button(t('w.enableDucking'), () => deckCommand('duck', { op: enabled ? 'off' : 'on', value: o.level ?? 25 })); box.append(b);
         render = data => { enabled = data.ducking; b.textContent = enabled ? t('w.disableDucking') : t('w.enableDucking'); b.setAttribute('aria-pressed', String(enabled)); };
       } else if (mode === 'profiles') {
         const list = h('div', 'deck-actions'); box.append(list); let key = '';
@@ -596,8 +651,8 @@ export function registerDeckWidget(type, title, mode = type) {
           else list.replaceChildren(...data.profiles.map(p => button(p.name, () => deckCommand('profile', { id: p.id })))); };
       } else if (mode === 'sleep') {
         let player = null; const caption = h('div', 'deck-caption');
-        box.append(button(`Sleep in ${o.minutes || 30} min`, () => deckCommand('sleep', { id: player?.id || '', value: o.minutes || 30 })),
-          button('Cancel timer', () => deckCommand('sleep', { id: player?.id || '', value: 0 })), caption);
+        box.append(button(tpv('Sleep in {n} min', { n: o.minutes || 30 }), () => deckCommand('sleep', { id: player?.id || '', value: o.minutes || 30 })),
+          button(tp('Cancel timer'), () => deckCommand('sleep', { id: player?.id || '', value: 0 })), caption);
         render = data => { player = selectedPlayer(data, o); const timer = data.sleep?.find(t => t.id === player?.id);
           caption.textContent = timer ? tpv('Pausing {player} in {n} min', { player: player?.name || tp('player'), n: Math.max(0, Math.ceil((timer.at - Date.now()) / 60000)) }) : t('w.noSleepTimer'); };
       } else if (mode === 'brightness') {
@@ -605,7 +660,7 @@ export function registerDeckWidget(type, title, mode = type) {
         render = data => {
           const items = (data.monitors || []).filter(m => !o.device || m.id === o.device);
           if (!items.length) { empty(list, t('w.noMonitors')); return; }
-          reconcile(list, items.map(m => { if (!rows.has(m.id)) { const s = slider(m.name + ' brightness', value => deckCommand('brightness', { id: m.id, value }));
+          reconcile(list, items.map(m => { if (!rows.has(m.id)) { const s = slider(tpv('{name} brightness', { name: m.name }), value => deckCommand('brightness', { id: m.id, value }));
             rows.set(m.id, { ...s, el: h('div', 'deck-channel', h('div', 'deck-channel-name', m.name), s.input, s.number) }); }
             const row = rows.get(m.id); row.input.disabled = m.brightness == null; row.set(m.brightness || 0); if (m.brightness == null) row.number.textContent = tp('DDC/CI unavailable'); return row.el; }));
         };
@@ -628,7 +683,7 @@ export function registerDeckWidget(type, title, mode = type) {
 for (const [type, title, mode] of [
   ['audio-mixer', 'Application mixer', 'apps'], ['app-volume', 'Application volume', 'app'],
   ['device-volume', 'Device volume', 'output'], ['audio-balance', 'Channel balance', 'balance'], ['audio-meter', 'Audio levels', 'meter'],
-  ['panic-mute', 'Emergency mute', 'panic'], ['microphone', 'Microphone', 'mic'], ['audio-inputs', 'Microphone selection', 'inputs'],
+  ['panic-mute', 'Emergency mute', 'panic'], ['mics-camera-off', 'Mics off, camera off', 'mics-camera-off'], ['microphone', 'Microphone', 'mic'], ['audio-inputs', 'Microphone selection', 'inputs'],
   ['audio-outputs', 'Output selection', 'outputs'], ['push-to-talk', 'Push to talk', 'ptt'], ['audio-profiles', 'Audio profiles', 'profiles'],
   ['audio-ducking', 'Audio ducking', 'duck'], ['media-sources', 'Media sources', 'sources'], ['media-remote', 'Media remote', 'remote'],
   ['media-seek', 'Playback position', 'seek'], ['media-modes', 'Shuffle and repeat', 'modes'], ['media-sleep', 'Music sleep timer', 'sleep'],
@@ -667,7 +722,7 @@ const timeText = ms => { const s = Math.floor((ms || 0) / 1000); return Math.flo
 integrationWidget('obs-mixer', 'OBS mixer', 'obs', (root, data, send) => {
   if (!data.inputs?.length) { empty(root, 'No OBS inputs found'); return; }
   for (const input of data.inputs) {
-    const s = slider(input.name + ' volume', value => send('volume', {id:input.id,value}));
+    const s = slider(tpv('{name} volume', { name: input.name }), value => send('volume', {id:input.id,value}));
     s.set(input.volume || 0); s.input.disabled = input.volume == null;
     const mute = button(input.muted ? tp('Unmute') : tp('Mute'), ()=>send('mute',{id:input.id,enabled:!input.muted}), 'Mute ' + input.name);
     mute.disabled = input.muted == null;
@@ -689,11 +744,11 @@ integrationWidget('obs-recording', 'OBS recording and stream', 'obs', (root,data
 });
 integrationWidget('obs-replay', 'OBS replay buffer', 'obs', (root,data,send)=>{
   const toggle=button(data.replayActive?tp('Stop replay buffer'):tp('Start replay buffer'),()=>send('replay'));toggle.disabled=!data.replayAvailable;
-  const save=button('Save replay',()=>send('save-replay'));save.disabled=!data.replayActive;root.append(toggle,save);
+  const save=button(tp('Save replay'),()=>send('save-replay'));save.disabled=!data.replayActive;root.append(toggle,save);
 });
 integrationWidget('obs-transition', 'OBS transition', 'obs', (root,data,send)=>{
   for(const t of data.transitions || []) {const b=button(t.transitionName,()=>send('transition',{id:t.transitionName}));b.classList.toggle('selected',data.transition===t.transitionName);root.append(b);}
-  const s=slider('Transition duration',value=>send('duration',{value}),10000);s.input.min=50;s.input.step=50;s.set(data.duration || 300);s.input.disabled=data.duration==null;root.append(s.input,s.number);
+  const s=slider(tp('Transition duration'),value=>send('duration',{value}),10000);s.input.min=50;s.input.step=50;s.set(data.duration || 300);s.input.disabled=data.duration==null;root.append(s.input,s.number);
 });
 integrationWidget('obs-camera', 'OBS virtual camera', 'obs', (root,data,send)=>{
   const b=button(data.cameraActive?tp('Stop virtual camera'):tp('Start virtual camera'),()=>send('camera'));b.disabled=!data.cameraAvailable;root.append(b);
@@ -726,8 +781,8 @@ integrationWidget('media-queue', 'Spotify queue', 'spotify/state', (root,data,se
     root.append(b);
   }
 });
-// Agent error text for the Plex widgets: the page-gate message is translated; any other text is shown as the agent sent it.
-const plexText = text => text === 'Add a Plex widget to an enabled page' ? tp('Add a Plex widget to an enabled page') : text;
+// Agent error text for the Plex widgets: the two page-gate messages are translated; any other text is shown as the agent sent it.
+const plexText = text => text === 'Add a Plex widget to an enabled page' ? tp('Add a Plex widget to an enabled page') : text === 'Add a Plex playlists widget to an enabled page' ? tp('Add a Plex playlists widget to an enabled page') : text;
 // Plex music (Caldera Amp): the same queue as above without covers. The agent passes on only an id, a name and an artist.
 integrationWidget('plex-queue', 'Plex queue', 'plex/state', (root,data,send)=>{
   const text = (name, artist) => h('div','sq-txt', h('div','sq-name',name || ''), artist ? h('div','sq-artist',artist) : null);
@@ -749,7 +804,7 @@ integrationWidget('plex-queue', 'Plex queue', 'plex/state', (root,data,send)=>{
 });
 integrationWidget('media-favorites', 'Spotify favorites', 'spotify/state', (root,data,send)=>{
   root.append(h('div','deck-track',data.current?.name || t('w.nothingPlaying')),h('div','deck-caption',data.current?.artist || ''));
-  const b=button('Save to library',()=>send('favorite'));b.disabled=!data.current?.id;root.append(b);
+  const b=button(tp('Save to library'),()=>send('favorite'));b.disabled=!data.current?.id;root.append(b);
 });
 W['meeting-timer'] = {needs:['tick'],create(box,{o}){
   const key='meeting-timer:'+ (o.timerId || 'default');
@@ -757,7 +812,7 @@ W['meeting-timer'] = {needs:['tick'],create(box,{o}){
   let state=store.get(key,{elapsed:0,started:0});
   const persist=()=>store.set(key,state);
   const start=button(state.started?tp('Pause'):tp('Start'),()=>{state=store.get(key,state);if(state.started){state.elapsed+=Date.now()-state.started;state.started=0;}else state.started=Date.now();persist();render();});
-  box.append(start,button('Reset',()=>{state={elapsed:0,started:0};persist();render();}));
+  box.append(start,button(tp('Reset'),()=>{state={elapsed:0,started:0};persist();render();}));
   function render(){state=store.get(key,state);const elapsed=state.elapsed+(state.started?Date.now()-state.started:0);clock.textContent=timeText(elapsed);start.textContent=state.started?t('w.pause'):t('w.start');start.setAttribute('aria-label',start.textContent);clock.classList.toggle('deck-overdue',elapsed>=(o.minutes || 30)*60000);}
   render();return {update:render};
 }};
@@ -771,6 +826,8 @@ W.trackpad = {
     const acceleration = o.acceleration !== false;
     const scrollSpeed = Number(o.scrollSpeed) || 1.0;
     const natural = Boolean(o.naturalScroll);
+    const inertialScroll = o.inertialScroll !== false;
+    const doubleTapDrag = Boolean(o.doubleTapDrag);
     const holdDuration = Math.max(100, Number(o.holdDuration) || 350);
     const scrollBar = o.scrollBar || 'right';
     const scrollBarWidth = Math.max(16, Number(o.scrollBarWidth) || 36);
@@ -794,9 +851,13 @@ W.trackpad = {
       h('div', 'deck-trackpad-icon', icon(controlEnabled ? 'mouse' : 'lock')),
       h('div', 'deck-trackpad-hint', !controlEnabled
         ? tp('Enable mouse control in widget settings')
-        : (scrollBar !== 'none'
-          ? tp('Drag to move · Tap to click · Hold to drag · Bar or 2 fingers to scroll')
-          : tp('Drag to move · Tap to click · Hold to drag · Two fingers to scroll')))
+        : doubleTapDrag
+          ? (scrollBar !== 'none'
+            ? tp('Drag to move · Tap to click · Double-tap to drag · Bar or 2 fingers to scroll')
+            : tp('Drag to move · Tap to click · Double-tap to drag · Two fingers to scroll'))
+          : (scrollBar !== 'none'
+            ? tp('Drag to move · Tap to click · Hold to drag · Bar or 2 fingers to scroll')
+            : tp('Drag to move · Tap to click · Hold to drag · Two fingers to scroll')))
     );
 
     let scrollBarEl = null;
@@ -813,9 +874,9 @@ W.trackpad = {
     const pad = h('div', 'deck-trackpad' + (scrollBar === 'left' ? ' has-scroll-left' : ''), surface);
     pad.setAttribute('tabindex', '0');
     pad.setAttribute('role', 'region');
-    pad.setAttribute('aria-label', o.title || 'Trackpad');
+    pad.setAttribute('aria-label', o.title || tp('Trackpad'));
     if (scrollBarEl) pad.append(scrollBarEl);
-    box.append(h('div', 'w-title', o.title || 'Trackpad'), pad);
+    box.append(h('div', 'w-title', o.title || en('Trackpad')), pad);
 
     if (!controlEnabled) {
       pad.classList.add('is-disabled');
@@ -862,6 +923,12 @@ W.trackpad = {
     }
 
     let accDx = 0, accDy = 0, moveScheduled = false;
+    let initMoveDx = 0, initMoveDy = 0, landingTimer = null;
+    const LANDING_GRACE_MS = 40;
+    function clearPendingInitMove() {
+      if (landingTimer) { clearTimeout(landingTimer); landingTimer = null; }
+      initMoveDx = 0; initMoveDy = 0;
+    }
     function queueMove(dx, dy) {
       accDx += dx; accDy += dy;
       if (!moveScheduled) {
@@ -881,6 +948,77 @@ W.trackpad = {
     }
 
     let accScrollX = 0, accScrollY = 0, scrollScheduled = false;
+    let scrollSamples = [], inertiaRaf = 0, inertiaVx = 0, inertiaVy = 0, inertiaLastTime = 0;
+    const SCROLL_VEL_WINDOW_MS = 90;
+    const SCROLL_INERTIA_TAU_MS = 230;
+    const SCROLL_INERTIA_MIN_START = 1.2 * scrollSpeed;
+    const SCROLL_INERTIA_MIN_STOP = 0.12;
+    const SCROLL_INERTIA_MAX_V = 45;
+    const SCROLL_INERTIA_MAX_GAP_MS = 200;
+    function cancelInertia() {
+      if (inertiaRaf) { cancelAnimationFrame(inertiaRaf); inertiaRaf = 0; }
+      inertiaVx = 0; inertiaVy = 0;
+      scrollSamples.length = 0;
+    }
+    function recordScrollSample(dx, dy) {
+      if (dx === 0 && dy === 0) return;
+      const now = performance.now();
+      scrollSamples.push({ t: now, dx, dy });
+      while (scrollSamples.length > 0 && now - scrollSamples[0].t > SCROLL_VEL_WINDOW_MS) {
+        scrollSamples.shift();
+      }
+    }
+    function startInertia() {
+      if (!inertialScroll || destroyed || scrollSamples.length === 0) { scrollSamples.length = 0; return; }
+      const now = performance.now();
+      const newestT = scrollSamples[scrollSamples.length - 1].t;
+      if (now - newestT > SCROLL_VEL_WINDOW_MS) { scrollSamples.length = 0; return; }
+      const cutoff = newestT - SCROLL_VEL_WINDOW_MS;
+      let sumDx = 0, sumDy = 0, oldestT = newestT;
+      for (const s of scrollSamples) {
+        if (s.t >= cutoff) {
+          sumDx += s.dx; sumDy += s.dy;
+          if (s.t < oldestT) oldestT = s.t;
+        }
+      }
+      scrollSamples.length = 0;
+      const span = Math.max(24, newestT - oldestT);
+      let vx = sumDx / span, vy = sumDy / span;
+      const speed = Math.hypot(vx, vy);
+      if (speed < SCROLL_INERTIA_MIN_START) return;
+      if (speed > SCROLL_INERTIA_MAX_V) {
+        const k = SCROLL_INERTIA_MAX_V / speed;
+        vx *= k; vy *= k;
+      }
+      inertiaVx = vx; inertiaVy = vy; inertiaLastTime = now;
+      const tick = (t) => {
+        if (destroyed || !inertiaRaf) return;
+        const dt = t - inertiaLastTime;
+        inertiaLastTime = t;
+        if (dt <= 0) {
+          inertiaRaf = requestAnimationFrame(tick);
+          return;
+        }
+        if (dt > SCROLL_INERTIA_MAX_GAP_MS) {
+          inertiaRaf = 0; inertiaVx = 0; inertiaVy = 0;
+          accScrollX = 0; accScrollY = 0;
+          return;
+        }
+        const decay = Math.exp(-dt / SCROLL_INERTIA_TAU_MS);
+        const stepDx = inertiaVx * SCROLL_INERTIA_TAU_MS * (1 - decay);
+        const stepDy = inertiaVy * SCROLL_INERTIA_TAU_MS * (1 - decay);
+        inertiaVx *= decay; inertiaVy *= decay;
+        accScrollX += stepDx; accScrollY += stepDy;
+        flushScroll();
+        if (Math.hypot(inertiaVx, inertiaVy) < SCROLL_INERTIA_MIN_STOP) {
+          inertiaRaf = 0;
+          accScrollX = 0; accScrollY = 0;
+          return;
+        }
+        inertiaRaf = requestAnimationFrame(tick);
+      };
+      inertiaRaf = requestAnimationFrame(tick);
+    }
     function queueScroll(dx, dy) {
       accScrollX += dx;
       accScrollY += dy;
@@ -913,8 +1051,18 @@ W.trackpad = {
     }
 
     const activePointers = new Map();
-    let maxActivePointers = 0, moved = false, tapFired = false;
+    let maxActivePointers = 0, moved = false, tapFired = false, sequenceCancelled = false;
     let isDragging = false, holdTimer = null;
+    let pendingTapTimer = null, lastTapUpTime = 0;
+    function flushPendingTap() {
+      if (!pendingTapTimer) return;
+      clearTimeout(pendingTapTimer);
+      pendingTapTimer = null;
+      if (destroyed) return;
+      flushMove();
+      send({ type: 'click' });
+      feel('click');
+    }
     let scrollAxis = null, cumScrollX = 0, cumScrollY = 0;
 
     // Three or more fingers make a gesture, as on a Mac's trackpad: a swipe (3 or 4 fingers) or, with 4 or more, a spread
@@ -970,6 +1118,7 @@ W.trackpad = {
       if (!type) return;
       gestureFired = true;
       clearTimeout(gestureQuietTimer);
+      cancelInertia();
       moved = true;
       send({ type });
       feel(type.startsWith('swipe') ? 'swipe' : type);
@@ -978,6 +1127,7 @@ W.trackpad = {
     pad.addEventListener('pointerdown', (e) => {
       e.stopPropagation(); e.preventDefault();
       try { pad.setPointerCapture(e.pointerId); } catch (_) {}
+      cancelInertia();
       const isBar = scrollBarEl && (e.target === scrollBarEl || scrollBarEl.contains(e.target));
       if (isBar) scrollBarEl.classList.add('is-scrolling');
       const now = performance.now();
@@ -991,7 +1141,10 @@ W.trackpad = {
       });
       maxActivePointers = Math.max(maxActivePointers, activePointers.size);
       if (activePointers.size > 1) {
+        clearPendingInitMove();
+        accDx = 0; accDy = 0; moveScheduled = false;
         if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+        if (pendingTapTimer) { clearTimeout(pendingTapTimer); pendingTapTimer = null; }
         if (isDragging) {
           isDragging = false;
           send({ type: 'mouseup' });
@@ -999,19 +1152,40 @@ W.trackpad = {
         scrollAxis = null;
         cumScrollX = 0;
         cumScrollY = 0;
+        if (activePointers.size >= 3) scrollSamples.length = 0;
       }
+      if (isBar && pendingTapTimer) flushPendingTap();
       if (!isBar) rebase();
       if (!isBar && activePointers.size === 1) {
         moved = false;
         tapFired = false;
-        holdTimer = setTimeout(() => {
-          if (!moved && !tapFired && maxActivePointers === 1 && activePointers.size === 1 && !isDragging) {
-            isDragging = true;
-            flushMove();
-            send({ type: 'mousedown' });
-            feel('drag');
+        if (doubleTapDrag) {
+          if (pendingTapTimer) {
+            const withinInterval = now - lastTapUpTime < holdDuration;
+            clearTimeout(pendingTapTimer);
+            pendingTapTimer = null;
+            if (withinInterval) {
+              isDragging = true;
+              flushMove();
+              send({ type: 'mousedown' });
+              feel('drag');
+            } else {
+              flushMove();
+              send({ type: 'click' });
+              feel('click');
+            }
           }
-        }, holdDuration);
+        } else {
+          holdTimer = setTimeout(() => {
+            if (!moved && !tapFired && maxActivePointers === 1 && activePointers.size === 1 && !isDragging) {
+              isDragging = true;
+              clearPendingInitMove();
+              flushMove();
+              send({ type: 'mousedown' });
+              feel('drag');
+            }
+          }, holdDuration);
+        }
       }
     });
 
@@ -1048,10 +1222,11 @@ W.trackpad = {
         gestureQuietTimer = setTimeout(() => { if (!destroyed && gestureBase && !gestureFired) checkGesture(true); }, 90);
       }
 
-      if (activePointers.size === 1) {
+      // Never move the cursor once a second finger has been part of this touch sequence
+      if (activePointers.size === 1 && maxActivePointers === 1) {
+        const now = performance.now();
         let gain = 1.0;
         if (acceleration) {
-          const now = performance.now();
           const elapsed = now - pt.lastMoveTime;
           if (elapsed > 60) {
             const dt = Math.max(12, Math.min(35, elapsed));
@@ -1077,7 +1252,30 @@ W.trackpad = {
           }
           pt.lastMoveTime = now;
         }
-        queueMove(rawDx * gain * sensitivity, rawDy * gain * sensitivity);
+        const moveDx = rawDx * gain * sensitivity, moveDy = rawDy * gain * sensitivity;
+        // Keep <=6 px tap jitter buffered until movement intent (>6 px) is established, and defer initial moves briefly for 2-finger landings
+        if (!isDragging && (!moved || now - pt.downTime < LANDING_GRACE_MS)) {
+          initMoveDx += moveDx;
+          initMoveDy += moveDy;
+          if (!landingTimer && moved) {
+            landingTimer = setTimeout(() => {
+              landingTimer = null;
+              if (destroyed || maxActivePointers !== 1 || activePointers.size !== 1 || (!moved && !isDragging)) {
+                initMoveDx = 0; initMoveDy = 0;
+                return;
+              }
+              if (initMoveDx !== 0 || initMoveDy !== 0) {
+                queueMove(initMoveDx, initMoveDy);
+                initMoveDx = 0; initMoveDy = 0;
+              }
+            }, Math.max(0, LANDING_GRACE_MS - (now - pt.downTime)));
+          }
+        } else {
+          if (landingTimer) { clearTimeout(landingTimer); landingTimer = null; }
+          const totalDx = initMoveDx + moveDx, totalDy = initMoveDy + moveDy;
+          initMoveDx = 0; initMoveDy = 0;
+          queueMove(totalDx, totalDy);
+        }
       } else if (activePointers.size === 2) {
         if (isDragging) {
           isDragging = false;
@@ -1114,15 +1312,17 @@ W.trackpad = {
           }
         }
 
+        let sendX = 0, sendY = 0;
         if (scrollAxis === 'y') {
-          queueScroll(0, dyDelta);
+          sendY = dyDelta;
         } else if (scrollAxis === 'x') {
-          queueScroll(dxDelta, 0);
+          sendX = dxDelta;
         } else {
-          const sendX = Math.abs(rawDx) >= 1.5 ? dxDelta : 0;
-          const sendY = Math.abs(rawDy) >= 1.5 ? dyDelta : 0;
-          queueScroll(sendX, sendY);
+          sendX = Math.abs(rawDx) >= 1.5 ? dxDelta : 0;
+          sendY = Math.abs(rawDy) >= 1.5 ? dyDelta : 0;
         }
+        queueScroll(sendX, sendY);
+        recordScrollSample(sendX, sendY);
       }
     });
 
@@ -1130,9 +1330,21 @@ W.trackpad = {
       e.stopPropagation(); e.preventDefault();
       try { pad.releasePointerCapture(e.pointerId); } catch (_) {}
       if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      if (e.type === 'pointercancel') {
+        sequenceCancelled = true;
+        scrollSamples.length = 0;
+      }
+      if (activePointers.size === 1 && maxActivePointers === 1) {
+        if (landingTimer) { clearTimeout(landingTimer); landingTimer = null; }
+        if ((moved || isDragging) && e.type !== 'pointercancel' && (initMoveDx !== 0 || initMoveDy !== 0)) {
+          accDx += initMoveDx; accDy += initMoveDy;
+        }
+        initMoveDx = 0; initMoveDy = 0;
+      }
       // a quick flick can lift in the frame of its last move: judge the fingers now, before the one that lifts is gone
       if (e.type === 'pointerup' && gestureBase && !gestureFired) checkGesture(true);
       const pt = activePointers.get(e.pointerId);
+      const duration = pt ? performance.now() - pt.downTime : 9999;
       if (pt?.isBar) {
         if (scrollBarEl) scrollBarEl.classList.remove('is-scrolling');
         flushScroll();
@@ -1141,13 +1353,22 @@ W.trackpad = {
         send({ type: 'mouseup' });
         isDragging = false;
         tapFired = true;
-      } else if (!moved && !tapFired && e.type !== 'pointercancel') {
-        const duration = pt ? performance.now() - pt.downTime : 9999;
-        if (maxActivePointers === 1 && duration < 300) {
-          flushMove();
+        if (doubleTapDrag && !moved && maxActivePointers === 1 && duration < 300 && e.type !== 'pointercancel') {
           send({ type: 'click' });
           feel('click');
-          tapFired = true;
+        }
+      } else if (!moved && !tapFired && e.type !== 'pointercancel') {
+        if (maxActivePointers === 1 && duration < 300) {
+          if (doubleTapDrag) {
+            lastTapUpTime = performance.now();
+            pendingTapTimer = setTimeout(flushPendingTap, holdDuration);
+            tapFired = true;
+          } else {
+            flushMove();
+            send({ type: 'click' });
+            feel('click');
+            tapFired = true;
+          }
         } else if (maxActivePointers === 2 && duration < 400) {
           flushMove();
           flushScroll();
@@ -1164,18 +1385,21 @@ W.trackpad = {
         cumScrollY = 0;
       }
       if (activePointers.size === 0) {
-        maxActivePointers = 0; moved = false; tapFired = false;
+        const shouldCoast = !sequenceCancelled && e.type !== 'pointercancel' && !gestureFired && maxActivePointers === 2 && moved;
+        maxActivePointers = 0; moved = false; tapFired = false; sequenceCancelled = false;
         gestureFired = false; gestureBase = null; scrollSince = 0;
         if (scrollBarEl) scrollBarEl.classList.remove('is-scrolling');
         flushMove(); flushScroll();
+        if (shouldCoast) startInertia();
+        else scrollSamples.length = 0;
       }
     };
 
     pad.addEventListener('pointerup', onPointerEnd);
     pad.addEventListener('pointercancel', onPointerEnd);
-    pad.addEventListener('touchstart', (e) => { e.stopPropagation(); }, { passive: false });
+    pad.addEventListener('touchstart', (e) => { e.stopPropagation(); e.preventDefault(); }, { passive: false });
     pad.addEventListener('touchmove', (e) => { e.stopPropagation(); e.preventDefault(); }, { passive: false });
-    pad.addEventListener('touchend', (e) => { e.stopPropagation(); }, { passive: false });
+    pad.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); }, { passive: false });
     pad.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); });
 
     return {
@@ -1189,8 +1413,12 @@ W.trackpad = {
         scrollAxis = null;
         cumScrollX = 0;
         cumScrollY = 0;
+        clearPendingInitMove();
+        cancelInertia();
+        sequenceCancelled = false;
         if (reconnectTimer) clearTimeout(reconnectTimer);
         if (holdTimer) clearTimeout(holdTimer);
+        if (pendingTapTimer) { clearTimeout(pendingTapTimer); pendingTapTimer = null; }
         clearTimeout(gestureQuietTimer);
         if (isDragging) { send({ type: 'mouseup' }); isDragging = false; }
         if (ws) { try { ws.close(); } catch (_) {} ws = null; }

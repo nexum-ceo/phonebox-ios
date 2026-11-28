@@ -37,6 +37,7 @@
 		E0650DB5F62F1DD36EAD17BF /* pl.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 49DEC5A5E4D9E03C8D309E83 /* pl.lproj */; };
 		D270A9E0194202A6E8846DA2 /* pt-BR.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 9F3B298CC17607BBF69D6BBA /* pt-BR.lproj */; };
 		BD7D6EE2A60D6FC5C96228D3 /* pt-PT.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 61537E1385EA10149F7B7D83 /* pt-PT.lproj */; };
+		E17F23F4ABF35F267A97EE40 /* ro.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 117C102F0DF01711EC31E947 /* ro.lproj */; };
 		C1F75874F2447C08BDE15289 /* ru.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 429881E5746AAC4BDDE70DBF /* ru.lproj */; };
 		E6BE2702C4E66D22140D05FB /* th.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 6C53D2CFB40F4B269D9C4191 /* th.lproj */; };
 		90E8287303A283C7B03B6197 /* tr.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 603E0169039292CA8979380E /* tr.lproj */; };
@@ -104,6 +105,7 @@
 		49DEC5A5E4D9E03C8D309E83 /* pl.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "pl.lproj"; sourceTree = "<group>"; };
 		9F3B298CC17607BBF69D6BBA /* pt-BR.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "pt-BR.lproj"; sourceTree = "<group>"; };
 		61537E1385EA10149F7B7D83 /* pt-PT.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "pt-PT.lproj"; sourceTree = "<group>"; };
+		117C102F0DF01711EC31E947 /* ro.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "ro.lproj"; sourceTree = "<group>"; };
 		429881E5746AAC4BDDE70DBF /* ru.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "ru.lproj"; sourceTree = "<group>"; };
 		6C53D2CFB40F4B269D9C4191 /* th.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "th.lproj"; sourceTree = "<group>"; };
 		603E0169039292CA8979380E /* tr.lproj */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "tr.lproj"; sourceTree = "<group>"; };
@@ -185,6 +187,7 @@
 				49DEC5A5E4D9E03C8D309E83 /* pl.lproj */,
 				9F3B298CC17607BBF69D6BBA /* pt-BR.lproj */,
 				61537E1385EA10149F7B7D83 /* pt-PT.lproj */,
+				117C102F0DF01711EC31E947 /* ro.lproj */,
 				429881E5746AAC4BDDE70DBF /* ru.lproj */,
 				6C53D2CFB40F4B269D9C4191 /* th.lproj */,
 				603E0169039292CA8979380E /* tr.lproj */,
@@ -302,6 +305,7 @@
 				E0650DB5F62F1DD36EAD17BF /* pl.lproj */,
 				D270A9E0194202A6E8846DA2 /* pt-BR.lproj */,
 				BD7D6EE2A60D6FC5C96228D3 /* pt-PT.lproj */,
+				E17F23F4ABF35F267A97EE40 /* ro.lproj */,
 				C1F75874F2447C08BDE15289 /* ru.lproj */,
 				E6BE2702C4E66D22140D05FB /* th.lproj */,
 				90E8287303A283C7B03B6197 /* tr.lproj */,
@@ -372,7 +376,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 				CURRENT_PROJECT_VERSION = 1;
-				MARKETING_VERSION = 0.9.27;
+				MARKETING_VERSION = 0.9.32;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
@@ -394,7 +398,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 				CURRENT_PROJECT_VERSION = 1;
-				MARKETING_VERSION = 0.9.27;
+				MARKETING_VERSION = 0.9.32;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				SWIFT_COMPILATION_MODE = wholemodule;

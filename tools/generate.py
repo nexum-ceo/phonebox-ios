@@ -20,7 +20,7 @@ APP = os.path.join(ROOT, "PhoneBox")
 RES = os.path.join(APP, "Resources")
 
 BUNDLE_ID = "net.oxog.phonebox.deskpanel.ios"
-VERSION = "0.9.27"  # the Android app this port follows (the agent compares it with its own release)
+VERSION = "0.9.32"  # the Android app this port follows (the agent compares it with its own release)
 
 # ---------------------------------------------------------------------------------------------------------- strings
 

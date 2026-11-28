@@ -48,7 +48,7 @@ final class PinDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, U
 /// settings page ("Pair a phone over Wi-Fi").
 final class AgentLink: @unchecked Sendable {
 
-    struct Reply { let code: Int; let contentType: String?; let body: Data }
+    struct Reply { let code: Int; let contentType: String?; let body: Data; var headers: [String: String] = [:] }
 
     enum Route: String { case wifi, none }
 
@@ -134,8 +134,13 @@ final class AgentLink: @unchecked Sendable {
 
     // MARK: small synchronous helpers (locking is kept out of the async functions)
 
+    /// When the agent last answered (a request or the live stream): what the panel's power standby watches.
+    var lastAnswer: Date { lock.lock(); defer { lock.unlock() }; return _lastAnswer }
+    private var _lastAnswer = Date.distantPast
+
     private func noteConnected(host: Int, route: Route?) {
         lock.lock(); defer { lock.unlock() }
+        _lastAnswer = Date()
         preferredHost = host
         if let route { _route = route }
     }
@@ -264,7 +269,11 @@ final class AgentLink: @unchecked Sendable {
                 if !(100...599).contains(code) || (300...399).contains(code) {
                     return Reply(code: 502, contentType: "application/json", body: Data(#"{"error":"unexpected response"}"#.utf8))
                 }
-                return Reply(code: code, contentType: http.value(forHTTPHeaderField: "Content-Type"), body: data)
+                var passed: [String: String] = [:]
+                for name in ["Content-Security-Policy", "X-Content-Type-Options"] {
+                    if let value = http.value(forHTTPHeaderField: name) { passed[name] = value }
+                }
+                return Reply(code: code, contentType: http.value(forHTTPHeaderField: "Content-Type"), body: data, headers: passed)
             } catch {
                 if controlPost {
                     // The command may already have been submitted: do not try another address.

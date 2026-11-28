@@ -16,6 +16,7 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
     private var stream: AgentStream!
     private var dictation: Dictation!
     private var chat: ClaudeChat!
+    private lazy var standby = PowerStandby(link: link)
     private let bridgeKey = UUID().uuidString
     private var resumed = false
     private var orientationMode = "landscape"
@@ -161,6 +162,7 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         run("window.onAppPause && window.onAppPause(false)") // the panel catches up at once
         stream.start()
         chat.pause(false)
+        standby.setActive(true)
         stateTimer?.invalidate()
         stateTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pushState() } }
         updateProximity()
@@ -173,6 +175,7 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         resumed = false
         stateTimer?.invalidate()
         stateTimer = nil
+        standby.setActive(false)
         chat.pause(true)
         dictation.cancel(0) // the microphone is never left open behind another app or a dark screen
         stream.stop()
@@ -248,6 +251,9 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         case "setVolumeKeys":
             volumeKeysFlipPages = (args.first as? Bool) ?? ((args.first as? NSNumber)?.boolValue ?? true)
             volume.setEnabled(volumeKeysFlipPages && resumed)
+        case "setStandby":
+            // (mode, graceSec): the panel pushes display.standby with its settings
+            standby.configure(mode: (args.first as? String) ?? "off", graceSeconds: args.count > 1 ? Int(number(args[1])) : 30)
         case "setPinned", "setHomeScreen":
             break // Guided Access and a home-screen app cannot be turned on by an app (kiosk: Settings > Accessibility > Guided Access)
         case "selectPc":
@@ -525,5 +531,77 @@ final class PaddedLabel: UILabel {
     }
     override func textRect(forBounds bounds: CGRect, limitedToNumberOfLines n: Int) -> CGRect {
         super.textRect(forBounds: bounds.insetBy(dx: 18, dy: 10), limitedToNumberOfLines: n).insetBy(dx: -18, dy: -10)
+    }
+}
+
+/// Power standby (display.standby in the panel's settings; `setStandby` of the Android app): a desk panel fed by one
+/// computer should stop holding the screen once that computer is gone. "off" (the default) keeps the screen on; "power"
+/// watches the charging state; "data" watches whether the agent still answers. Once the computer has been judged absent
+/// for the grace period the app stops holding the screen on, so iOS' own auto-lock dims and locks it; the moment the
+/// computer is back the hold is taken again. (An app can only stop insisting that the screen stays on.)
+@MainActor
+final class PowerStandby {
+    private let link: AgentLink
+    private var mode = "off"
+    private var grace: TimeInterval = 30
+    private var active = false
+    private var lostSince: Date?
+    private var absent = false
+    private var timer: Timer?
+    private static let silence: TimeInterval = 12
+
+    init(link: AgentLink) { self.link = link }
+
+    func configure(mode: String, graceSeconds: Int) {
+        let m = ["power", "data"].contains(mode.lowercased()) ? mode.lowercased() : "off"
+        let g = TimeInterval(min(max(graceSeconds, 3), 600))
+        guard m != self.mode || g != grace else { return }
+        self.mode = m
+        grace = g
+        lostSince = nil
+        absent = false
+        apply()
+        restartTimer()
+    }
+
+    func setActive(_ on: Bool) {
+        active = on
+        restartTimer()
+        if !on { UIApplication.shared.isIdleTimerDisabled = false } else { apply() }
+    }
+
+    private func restartTimer() {
+        timer?.invalidate()
+        timer = nil
+        guard active, mode != "off" else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.tick() } }
+    }
+
+    private func computerGone() -> Bool {
+        switch mode {
+        case "power":
+            let state = UIDevice.current.batteryState
+            return !(state == .charging || state == .full)
+        case "data":
+            return Date().timeIntervalSince(link.lastAnswer) >= Self.silence
+        default:
+            return false
+        }
+    }
+
+    private func tick() {
+        guard active else { return }
+        if !computerGone() {
+            lostSince = nil
+            if absent { absent = false; apply() }
+            return
+        }
+        guard let since = lostSince else { lostSince = Date(); return }
+        if !absent, Date().timeIntervalSince(since) >= grace { absent = true; apply() }
+    }
+
+    private func apply() {
+        // the screen is held on while standby is off or the computer is judged present
+        UIApplication.shared.isIdleTimerDisabled = active && (mode == "off" || !absent)
     }
 }
