@@ -87,6 +87,29 @@ final class ChatRelay: @unchecked Sendable {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
+    /// The name this Mac answers to on any network ("Mein-MacBook.local"), which the iPhone learns over its
+    /// connection and tries when the Mac's address has changed. It is the sharing name from System Settings, not the
+    /// computer name the agent reports (that one follows the network's DHCP name).
+    static func localHostName() -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/scutil")
+        process.arguments = ["--get", "LocalHostName"]
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        process.waitUntilExit()
+        let name = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.range(of: "^[A-Za-z0-9-]{1,63}$", options: .regularExpression) != nil ? name + ".local" : nil
+    }
+
+    /// Signed with the phone's key like everything else here, so only this Mac's Starter can tell the phone a host name.
+    static func announceHost() async {
+        guard let key = phoneKey(), let host = localHostName() else { return }
+        let ts = String(Int(Date().timeIntervalSince1970 * 1000))
+        await agent("POST", "pbchat.host", body: ["v": 1, "ts": ts, "host": host, "sig": sign(["host", ts, host], key: key)], ttl: 90)
+    }
+
     /// The phone's paired key, from the agent's settings; nil while Wi-Fi pairing is off.
     static func phoneKey() -> String? {
         let config = AgentController.support.appendingPathComponent("config.json")

@@ -74,6 +74,19 @@ iOS fragt beim ersten Verbinden nach **„Lokales Netzwerk“**: erlauben, sonst
   direkt an die Adresse des PCs. Ob das deinen PC weckt, hängt von Netzwerkkarte und Router ab.
 - **Diktat** nutzt Apples Spracherkennung statt der von Google, und das Panel läuft in WebKit statt Chrome.
 
+## Der Mac wird automatisch wiedergefunden
+
+Die Kopplung speichert die Adresse des Macs, und die stimmt nur in dem Netz, in dem du gekoppelt hast. Damit das
+iPhone den Mac nach einem Netzwechsel (anderes WLAN, neue Adresse vom Router) selbst findet, gilt:
+
+- Der **PhoneBox Starter** meldet dem iPhone über die bestehende, signierte Verbindung den **Bonjour-Namen** des Macs
+  (z. B. `Mein-MacBook.local`, der „Computername für Freigaben“ aus Systemeinstellungen › Allgemein ›
+  Info › Name). Er gilt in jedem Netz. Das iPhone lernt ihn, sobald es einmal verbunden war, und hängt ihn an die Adressen an.
+- Schlagen die Adressen fehl, probiert die App den Namen. Sie merkt sich, worüber es zuletzt ging, und nimmt es beim
+  nächsten Start zuerst, sodass eine alte Adresse nichts mehr kostet.
+- Voraussetzung: Der PhoneBox Starter lief einmal, während das iPhone verbunden war. Beide Geräte müssen im selben Netz
+  sein (oder per Tailscale). Ohne den gelernten Namen hilft nur eine neue Kopplung.
+
 ## Claude-Code-Chat (nur iPhone)
 
 Auf jeder **Claude**-Karte des Widgets „AI Quotas“ (und auf Claude-Quota-Ringen) sitzt ein **💬**-Knopf. Er öffnet ein

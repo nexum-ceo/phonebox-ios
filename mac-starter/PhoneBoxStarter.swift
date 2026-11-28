@@ -191,12 +191,17 @@ final class AgentController: ObservableObject {
 
     // MARK: status
 
+    private var announceTick = 0
+
     func refresh() async {
         guard !working else { return }
         guard FileManager.default.isExecutableFile(atPath: Self.binary.path) else { state = .notInstalled; return }
         if let info = await Self.info() {
             version = info["version"] as? String
             state = .running
+            // tell the iPhone this Mac's name, every ~10 s (the entry lives 90 s)
+            announceTick += 1
+            if announceTick % 5 == 1 { Task.detached { await ChatRelay.announceHost() } }
         } else {
             version = nil
             state = Self.processRunning() ? .busy : .stopped // a running process that does not answer yet is starting

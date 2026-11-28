@@ -17,6 +17,7 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
     private var dictation: Dictation!
     private var chat: ClaudeChat!
     private lazy var standby = PowerStandby(link: link)
+    private lazy var finder = MacFinder(link: link)
     private let bridgeKey = UUID().uuidString
     private var resumed = false
     private var orientationMode = "landscape"
@@ -163,6 +164,7 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         stream.start()
         chat.pause(false)
         standby.setActive(true)
+        finder.start()
         stateTimer?.invalidate()
         stateTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pushState() } }
         updateProximity()
@@ -176,6 +178,7 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         stateTimer?.invalidate()
         stateTimer = nil
         standby.setActive(false)
+        finder.stop()
         chat.pause(true)
         dictation.cancel(0) // the microphone is never left open behind another app or a dark screen
         stream.stop()
@@ -343,6 +346,13 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         if url.scheme == "phonebox", url.host == "chat-test",
            let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "text" })?.value {
             run("(function(){var r=document.getElementById('pbChat');if(!r)return;var t=r.querySelector('textarea');t.value=\(jsQuote(text));r.querySelector('.pc-send').click();})()")
+            return
+        }
+        if url.scheme == "phonebox", url.host == "debug-hosts" {
+            let list = (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "h" })?.value ?? "")
+                .split(separator: ",").map(String.init)
+            link.debugSetAddresses(list)
+            restart()
             return
         }
         if url.scheme == "phonebox", url.host == "chat-eval",

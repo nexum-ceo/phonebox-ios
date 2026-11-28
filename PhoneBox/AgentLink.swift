@@ -56,7 +56,7 @@ final class AgentLink: @unchecked Sendable {
     struct Pc: Codable, Equatable {
         let id: String
         let name: String
-        let hosts: [String]
+        var hosts: [String]
         let port: Int
         let token: String
         var macs: [String] = []
@@ -66,7 +66,9 @@ final class AgentLink: @unchecked Sendable {
     private var _route: Route = .none
     private var _pcs: [Pc]
     private var _activeId: String?
-    private var preferredHost = 0
+    /// The address or host name that worked last (also kept across app starts, so a network change costs the failed
+    /// addresses only once).
+    private var preferredHost: String?
     private var sessions: [String: (URLSession, PinDelegate)] = [:]
     private var closed = false
 
@@ -112,7 +114,7 @@ final class AgentLink: @unchecked Sendable {
         lock.lock()
         guard _pcs.contains(where: { $0.id == id }) else { lock.unlock(); return false }
         save(_pcs, active: id)
-        preferredHost = 0
+        preferredHost = nil
         lock.unlock()
         trackpad.close()
         return true
@@ -138,10 +140,13 @@ final class AgentLink: @unchecked Sendable {
     var lastAnswer: Date { lock.lock(); defer { lock.unlock() }; return _lastAnswer }
     private var _lastAnswer = Date.distantPast
 
-    private func noteConnected(host: Int, route: Route?) {
+    private func noteConnected(host: String, of pcId: String, route: Route?) {
         lock.lock(); defer { lock.unlock() }
         _lastAnswer = Date()
-        preferredHost = host
+        if preferredHost != host {
+            preferredHost = host
+            UserDefaults.standard.set(host, forKey: "preferredHost." + pcId)
+        }
         if let route { _route = route }
     }
 
@@ -160,13 +165,41 @@ final class AgentLink: @unchecked Sendable {
         return pendingEvents.removeFirst()
     }
 
-    private func storePaired(link: PairLink, hosts: [String], port: Int, token: String, macs reported: [String]?) {
+    /// A host name the Mac announced ("<name>.local"): unlike an address it stays right when the Mac moves to another
+    /// network, so it is kept next to the addresses, tried when they fail and remembered once it works.
+    func learnHost(_ host: String, for id: String) {
+        guard host.range(of: "^[A-Za-z0-9-]{1,63}\\.local$", options: .regularExpression) != nil else { return }
+        lock.lock(); defer { lock.unlock() }
+        guard let index = _pcs.firstIndex(where: { $0.id == id }), !_pcs[index].hosts.contains(where: { $0.caseInsensitiveCompare(host) == .orderedSame }) else { return }
+        var list = _pcs
+        list[index].hosts.append(host)
+        save(list, active: _activeId)
+        NSLog("PhoneBox learned host name %@", host)
+    }
+
+    #if DEBUG
+    /// tests only: replaces the active computer's addresses (the learned host names stay)
+    func debugSetAddresses(_ addresses: [String]) {
+        lock.lock(); defer { lock.unlock() }
+        guard let id = _activeId ?? _pcs.first?.id, let index = _pcs.firstIndex(where: { $0.id == id }) else { return }
+        var list = _pcs
+        list[index].hosts = addresses + list[index].hosts.filter { $0.hasSuffix(".local") }
+        save(list, active: _activeId)
+        preferredHost = nil
+        UserDefaults.standard.removeObject(forKey: "preferredHost." + id)
+    }
+    #endif
+
+    private func storePaired(link: PairLink, hosts reportedHosts: [String], port: Int, token: String, macs reported: [String]?) {
         lock.lock(); defer { lock.unlock() }
         let id = link.fingerprint.lowercased()
+        // a host name learned earlier survives a new pairing
+        let learned = _pcs.first(where: { $0.id == id })?.hosts.filter { $0.hasSuffix(".local") } ?? []
+        let hosts = reportedHosts + learned.filter { name in !reportedHosts.contains(name) }
         // an empty report (an adapter briefly not eligible) must not wipe the MACs already stored for it
         let pc = Pc(id: id, name: link.pc, hosts: hosts, port: port, token: token, macs: reported ?? _pcs.first { $0.id == id }?.macs ?? [])
         save(_pcs.filter { $0.id != id } + [pc], active: id)
-        preferredHost = 0
+        preferredHost = nil
     }
 
     // MARK: sessions
@@ -209,7 +242,7 @@ final class AgentLink: @unchecked Sendable {
             do {
                 let (bytes, response) = try await session.bytes(for: request)
                 guard let http = response as? HTTPURLResponse else { continue }
-                noteConnected(host: i, route: .wifi)
+                noteConnected(host: pc.hosts[i], of: pc.id, route: .wifi)
                 return (.wifi, bytes, http)
             } catch { continue }
         }
@@ -228,9 +261,10 @@ final class AgentLink: @unchecked Sendable {
     }
 
     private func orderedHosts(_ pc: Pc) -> [Int] {
-        lock.lock(); let preferred = preferredHost; lock.unlock()
+        lock.lock(); let remembered = preferredHost; lock.unlock()
+        let preferred = remembered ?? UserDefaults.standard.string(forKey: "preferredHost." + pc.id)
         return pc.hosts.indices.sorted { a, b in
-            let ka = a == preferred ? -1 : a, kb = b == preferred ? -1 : b
+            let ka = pc.hosts[a] == preferred ? -1 : a, kb = pc.hosts[b] == preferred ? -1 : b
             return ka < kb
         }
     }
@@ -249,7 +283,7 @@ final class AgentLink: @unchecked Sendable {
         let session = self.session(pin: pc.id)
         // every POST acts on the computer (a container restart, a Home Assistant switch, a macro): none may run twice
         let controlPost = method == "POST"
-        for i in (target == nil ? orderedHosts(pc) : Array(pc.hosts.indices)) {
+        for i in orderedHosts(pc) {
             let host = pc.hosts[i]
             // A POST must not be sent to an address that may not answer: if it timed out we could not tell whether the
             // command ran. A quick connection test tells a dead address from a slow command.
@@ -264,7 +298,7 @@ final class AgentLink: @unchecked Sendable {
             do {
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else { continue }
-                if target == nil { noteConnected(host: i, route: nil) }
+                if target == nil { noteConnected(host: pc.hosts[i], of: pc.id, route: nil) }
                 let code = http.statusCode
                 if !(100...599).contains(code) || (300...399).contains(code) {
                     return Reply(code: 502, contentType: "application/json", body: Data(#"{"error":"unexpected response"}"#.utf8))
