@@ -104,6 +104,10 @@ PhoneBox Starter (Mac) liest sie lokal ──▶ claude -p … (im Chat-Ordner) 
 - Jede Nachricht und jede Antwort ist mit dem **Kopplungsschlüssel des iPhones signiert** (HMAC-SHA256). Andere
   Absender, etwa Geräte mit dem Webhook-Schlüssel des Agenten, können Claude Code deshalb nicht steuern.
 - Das Gespräch wird fortgesetzt (`--resume`), bis du **Neuer Chat** tippst. **Stopp** bricht eine laufende Antwort ab.
+- **Hochformat:** Der Chat funktioniert auch, wenn du das iPhone aufrecht hältst. Beim Öffnen folgt er der Lage des
+  iPhones; der Knopf **⟳** in der Kopfzeile dreht zwischen Hoch- und Querformat, auch bei gesperrter Drehung. Im
+  Hochformat ist die Kopfzeile kompakt (Ordner, Status, ⟳, Neuer Chat, ✕), und das Eingabefeld bleibt über der
+  Tastatur sichtbar. Schließt du den Chat, kehrt das Panel in seine eigene Ausrichtung zurück.
 - **Projektordner wechseln:** Tipp in der Kopfzeile auf **📁 Ordnername ▾**. Die Liste zeigt die Unterordner deines
   Projektordners (Standard `~/CEO`) und die Ordner, in denen du Claude Code zuletzt benutzt hast. Gewechselt wird nur
   in einen Ordner, den der Mac selbst anbietet. Mit dem Ordner beginnt ein neues Gespräch.

@@ -84,12 +84,15 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         chat = ClaudeChat(link: link) { [weak self] script in self?.run(script) }
         volume = VolumeKeys(host: view) { [weak self] key in self?.run("window.onAndroidKey && window.onAndroidKey('\(key)')") }
 
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications() // how the phone is held, for the chat
         UIDevice.current.isBatteryMonitoringEnabled = true
         UIDevice.current.isProximityMonitoringEnabled = true
         proximityAvailable = UIDevice.current.isProximityMonitoringEnabled
         UIDevice.current.isProximityMonitoringEnabled = false
 
         let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         center.addObserver(self, selector: #selector(didBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(willResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(proximityChanged), name: UIDevice.proximityStateDidChangeNotification, object: nil)
@@ -146,7 +149,12 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
     override var prefersHomeIndicatorAutoHidden: Bool { true }
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { .all }
 
+    /// The chat window works in portrait too (the panel itself is made for landscape): while it is open the phone may be
+    /// held either way, and when it closes the panel's own setting applies again.
+    private var chatVisible = false
+
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        if chatVisible { return .allButUpsideDown }
         switch orientationMode {
         case "portrait": return .portrait
         case "auto": return .allButUpsideDown
@@ -197,6 +205,21 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         if UIDevice.current.isProximityMonitoringEnabled != on { UIDevice.current.isProximityMonitoringEnabled = on }
     }
 
+    /// How much of the web view the keyboard covers (also the bar of a hardware keyboard: ∧ ∨ ✓): the chat window leaves
+    /// that part free so its input field stays visible, in portrait as well as in landscape.
+    @objc private func keyboardChanged(_ note: Notification) {
+        var covered: CGFloat = 0
+        if note.name == UIResponder.keyboardWillChangeFrameNotification,
+           let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
+            let frame = view.convert(end, from: nil)
+            covered = max(0, view.bounds.maxY - frame.minY)
+            // A hardware keyboard (also the Mac's, through iPhone Mirroring) keeps the soft keyboard out of sight, but iOS
+            // still shows its shortcut bar (∧ ∨ ✓) above the bottom edge without counting it in this frame.
+            if covered < 1 { covered = 64 }
+        }
+        run("window.__pbKeyboard && window.__pbKeyboard(\(Int(covered.rounded())))")
+    }
+
     @objc private func proximityChanged() {
         guard resumed else { return }
         run("window.onAndroidSensor && window.onAndroidSensor('proximity', \(UIDevice.current.proximityState))")
@@ -236,7 +259,11 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
             else { brightnessOverride = min(max(value, 0.01), 1); if resumed { UIScreen.main.brightness = brightnessOverride! } }
             updateProximity()
         case "chatOpen":
-            chat.setOpen((args.first as? Bool) ?? ((args.first as? NSNumber)?.boolValue ?? false))
+            let open = (args.first as? Bool) ?? ((args.first as? NSNumber)?.boolValue ?? false)
+            chat.setOpen(open)
+            chatVisibility(open)
+        case "chatRotate":
+            chatRotate()
         case "chatSend":
             if let text = args.first as? String { chat.send(text) }
         case "chatCancel":
@@ -328,6 +355,31 @@ final class PanelViewController: UIViewController, WKNavigationDelegate, WKUIDel
         if let scene = view.window?.windowScene {
             scene.requestGeometryUpdate(.iOS(interfaceOrientations: supportedInterfaceOrientations)) { _ in }
         }
+    }
+
+    private func requestGeometry(_ mask: UIInterfaceOrientationMask) {
+        view.window?.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
+    }
+
+    /// The chat opens or closes. Opening follows how the phone is held; closing returns to the panel's orientation.
+    private func chatVisibility(_ open: Bool) {
+        chatVisible = open
+        setNeedsUpdateOfSupportedInterfaceOrientations()
+        if open {
+            switch UIDevice.current.orientation {
+            case .portrait: requestGeometry(.portrait)
+            case .landscapeLeft, .landscapeRight: requestGeometry(.landscape)
+            default: break
+            }
+        } else if orientationMode != "auto" {
+            requestGeometry(orientationMode == "portrait" ? .portrait : .landscape)
+        }
+    }
+
+    /// The chat's rotate button: turns the screen between portrait and landscape, whatever the orientation lock says.
+    private func chatRotate() {
+        let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape ?? true
+        requestGeometry(landscape ? .portrait : .landscape)
     }
 
     /// Reloads the panel from the (newly selected) computer.

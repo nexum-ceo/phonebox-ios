@@ -11,14 +11,14 @@ enum ChatScript {
   window.__pbChatLoaded = true;
   var de = (navigator.language || '').toLowerCase().indexOf('de') === 0;
   var T = de ? {
-    title: 'Claude Code', placeholder: 'Nachricht an Claude Code …', send: 'Senden', stop: 'Stopp', fresh: 'Neuer Chat',
+    title: 'Claude Code', placeholder: 'Nachricht an Claude Code …', send: 'Senden', stop: 'Stopp', fresh: 'Neuer Chat', rotate: 'Drehen',
     ready: 'bereit', offline: 'Mac nicht erreichbar – läuft der PhoneBox Starter mit „Claude-Chat fürs iPhone“?',
     working: 'Claude arbeitet …', stopped: '(gestoppt)', empty: 'Schreib Claude Code auf deinem Mac. Neuer Chat beginnt ein neues Gespräch.',
     folder: 'Ordner', notPaired: 'Erst mit dem Computer über WLAN koppeln.', tools: 'Werkzeuge',
     projects: 'Projektordner', switching: 'Wechsle den Ordner …', switched: 'Projekt gewechselt: {n} – neues Gespräch',
     noProjects: 'Der Mac hat noch keine Projekte gemeldet.'
   } : {
-    title: 'Claude Code', placeholder: 'Message Claude Code …', send: 'Send', stop: 'Stop', fresh: 'New chat',
+    title: 'Claude Code', placeholder: 'Message Claude Code …', send: 'Send', stop: 'Stop', fresh: 'New chat', rotate: 'Rotate',
     ready: 'ready', offline: 'Mac not reachable – is PhoneBox Starter running with "Claude chat for the iPhone"?',
     working: 'Claude is working …', stopped: '(stopped)', empty: 'Write to Claude Code on your Mac. New chat starts a new conversation.',
     folder: 'Folder', notPaired: 'Pair with the computer over Wi-Fi first.', tools: 'Tools',
@@ -64,6 +64,15 @@ enum ChatScript {
     '#pbChat .pc-send[disabled]{opacity:.4}',
     '#pbChat button.pc-folder{all:unset;cursor:pointer;max-width:38%;padding:7px 12px;border-radius:10px;background:#1a1f28;color:#f0b49d;',
     'font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '#pbChat button.pc-rot{all:unset;cursor:pointer;padding:7px 10px;border-radius:10px;background:#1a1f28;color:#d6dbe4;font-size:16px;line-height:1}',
+    '#pbChat button.pc-rot:active{background:#262c37}',
+    // portrait (a phone held upright is about 390 pt wide): a compact header and wider messages
+    '@media (max-width:640px){#pbChat .pc-head{gap:6px}#pbChat .pc-title{display:none}',
+    '#pbChat .pc-state{flex:none;font-size:0}#pbChat .pc-state::before{font-size:14px}',
+    '#pbChat button.pc-b,#pbChat button.pc-folder,#pbChat button.pc-rot{padding:7px 9px;font-size:13px}',
+    '#pbChat button.pc-folder{max-width:none;flex:1;min-width:0;text-align:left}',
+    '#pbChat .pc-msg{max-width:92%;font-size:15px}#pbChat .pc-proj{width:calc(100% - 28px)!important}',
+    '#pbChat .pc-row{padding-bottom:8px}}',
     '#pbChat .pc-proj{position:absolute;top:76px;left:max(14px,env(safe-area-inset-left));width:min(460px,70%);max-height:calc(100% - 80px);',
     'overflow-y:auto;background:#141821;border:1px solid #2a303b;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.6);z-index:2;display:none}',
     '#pbChat .pc-proj.open{display:block}',
@@ -81,12 +90,14 @@ enum ChatScript {
   var root = document.createElement('div');
   root.id = 'pbChat';
   root.innerHTML = '<div class="pc-head"><span class="pc-logo">✳\uFE0E</span><span class="pc-title"></span><button class="pc-folder"></button><span class="pc-state"></span>' +
-    '<button class="pc-b pc-new"></button><button class="pc-b pc-close" aria-label="close">✕</button></div>' +
+    '<button class="pc-rot"></button><button class="pc-b pc-new"></button><button class="pc-b pc-close" aria-label="close">✕</button></div>' +
     '<div class="pc-proj"></div><div class="pc-list"></div>' +
     '<div class="pc-row"><textarea rows="1" enterkeyhint="send"></textarea><button class="pc-send"></button></div>';
   var $ = function (s) { return root.querySelector(s); };
   $('.pc-title').textContent = T.title;
   $('.pc-new').textContent = T.fresh;
+  $('.pc-rot').textContent = '⟳\uFE0E'; $('.pc-rot').setAttribute('aria-label', T.rotate); $('.pc-rot').title = T.rotate;
+  $('.pc-rot').onclick = function () { post('chatRotate', []); };
   var list = $('.pc-list'), input = $('textarea'), send = $('.pc-send'), state = $('.pc-state');
   var folderBtn = $('.pc-folder'), proj = $('.pc-proj');
   var projects = { current: '', items: [] };
@@ -145,6 +156,19 @@ enum ChatScript {
     send.classList.toggle('stop', !!busy);
   }
 
+  // the app tells how far the keyboard (or its bar) reaches into the window: keep the input above it
+  var kbPx = 0;
+  function pad() {
+    // While the field has focus, at least the height of iOS's shortcut bar (∧ ∨ ✓), which a hardware keyboard keeps
+    // showing without any keyboard notification; a soft keyboard reports its own, larger height.
+    var focused = document.activeElement === input;
+    var px = Math.max(kbPx, focused ? 64 : 0);
+    root.style.paddingBottom = px > 0 ? (px + 8) + 'px' : '';
+    if (root.classList.contains('open')) list.scrollTop = list.scrollHeight;
+  }
+  window.__pbKeyboard = function (px) { kbPx = px; pad(); };
+  input.addEventListener('focus', pad);
+  input.addEventListener('blur', function () { setTimeout(pad, 50); });
   function open() { root.classList.add('open'); render(); post('chatOpen', [true]); setTimeout(function () { input.focus(); }, 250); }
   function close() { root.classList.remove('open'); input.blur(); post('chatOpen', [false]); }
   $('.pc-close').onclick = close;
